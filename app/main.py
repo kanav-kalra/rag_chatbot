@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
         app.state.document_count = len(documents)
         
         logger.info(f"Loaded {len(documents)} document pages from policies folder.")
-        logger.info("Backend initialization completed successfully.")
+        #logger.info("Backend initialization completed successfully.")
     except Exception as e:
         logger.error(f"Failed to initialize backend resources: {e}", exc_info=True)
         # Set empty documents list on error to prevent crashes
