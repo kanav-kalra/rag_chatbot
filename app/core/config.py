@@ -2,7 +2,18 @@
 Application Configuration
 """
 import os
+from pathlib import Path
 from typing import List
+
+# Load environment variables from .env file if it exists
+from dotenv import load_dotenv
+
+# Get the project root directory (two levels up from this file)
+project_root = Path(__file__).parent.parent.parent
+env_path = project_root / ".env"
+
+# Load .env file if it exists
+load_dotenv(dotenv_path=env_path)
 
 
 class Settings:
@@ -38,6 +49,9 @@ class Settings:
     
     # Logging Configuration
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    
+    # OpenAI Configuration
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
 
 
 # Create settings instance

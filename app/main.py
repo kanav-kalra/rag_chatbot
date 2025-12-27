@@ -26,7 +26,9 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logger import logger
 from app.document_loader import load_pdf_documents
-
+from app.document_loader.text_splitter import create_text_splitter, split_documents
+# Call memory_builder to build and initialize the in-memory vector store
+from app.document_loader.memory_builder import build_memory_from_pdfs
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -37,22 +39,10 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("FastAPI application startup initiated.")
     try:
-        # Load PDF documents from policies folder
-        logger.info("Loading PDF documents from policies folder...")
-        documents = load_pdf_documents()
-        
-        # Store documents in app state for access throughout the application
-        app.state.documents = documents
-        app.state.document_count = len(documents)
-        
-        logger.info(f"Loaded {len(documents)} document pages from policies folder.")
-        #logger.info("Backend initialization completed successfully.")
+        build_memory_from_pdfs()
+        logger.info("Memory initialized using build_memory_from_pdfs from memory_builder.")
     except Exception as e:
-        logger.error(f"Failed to initialize backend resources: {e}", exc_info=True)
-        # Set empty documents list on error to prevent crashes
-        app.state.documents = []
-        app.state.document_count = 0
-        raise
+        logger.error(f"Error initializing memory: {e}", exc_info=True)
     
     yield
     

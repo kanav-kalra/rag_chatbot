@@ -13,3 +13,4 @@ langchain-core==1.2.5
 langchain-text-splitters==1.1.0
 langchain-openai
 pypdf==6.5.0
+python-dotenv
