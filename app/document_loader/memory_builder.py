@@ -179,7 +179,7 @@ if __name__ == "__main__":
         logger.info(f"Vector store type: {type(vector_store).__name__}")
         
         # Example: Perform a similarity search
-        query = "What is the policy on?"
+        query = "Is 1st Jan 2026 a holiday?"
         logger.info(f"Performing similarity search for: '{query}'")
         results = vector_store.similarity_search(query, k=3)
         

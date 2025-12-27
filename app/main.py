@@ -29,6 +29,8 @@ from app.document_loader import load_pdf_documents
 from app.document_loader.text_splitter import create_text_splitter, split_documents
 # Call memory_builder to build and initialize the in-memory vector store
 from app.document_loader.memory_builder import build_memory_from_pdfs
+# Set up global vector store for tools
+from app.tools.vector_store_manager import set_vector_store
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -39,8 +41,10 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("FastAPI application startup initiated.")
     try:
-        build_memory_from_pdfs()
+        vector_store = build_memory_from_pdfs()
+        set_vector_store(vector_store)
         logger.info("Memory initialized using build_memory_from_pdfs from memory_builder.")
+        logger.info("Vector store set globally for retrieval tools.")
     except Exception as e:
         logger.error(f"Error initializing memory: {e}", exc_info=True)
     
