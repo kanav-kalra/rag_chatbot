@@ -14,11 +14,46 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.v1.router import api_router
+from app.document_loader import load_pdf_documents
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events.
+    This is the modern FastAPI approach (replaces deprecated @app.on_event).
+    """
+    # Startup
+    print(f"FastAPI application startup initiated.")
+    try:
+        # Load PDF documents from policies folder
+        print("Loading PDF documents from policies folder...")
+        documents = load_pdf_documents()
+        
+        # Store documents in app state for access throughout the application
+        app.state.documents = documents
+        app.state.document_count = len(documents)
+        
+        print(f"✅ Loaded {len(documents)} document pages from policies folder.")
+        print(f"✅ Backend initialization completed successfully.")
+    except Exception as e:
+        print(f"Failed to initialize backend resources: {e}")
+        # Set empty documents list on error to prevent crashes
+        app.state.documents = []
+        app.state.document_count = 0
+        raise
+    
+    yield
+    
+    # Shutdown (if needed)
+    # Clean up resources here
+    print("FastAPI application shutdown.")
 
 
 def create_application() -> FastAPI:
@@ -32,6 +67,7 @@ def create_application() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
+        lifespan=lifespan,  # Modern lifespan event handler
     )
 
     # Configure CORS
