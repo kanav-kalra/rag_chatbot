@@ -1,24 +1,64 @@
 """
 Main FastAPI Application
 """
-import sys
-import os
+# Standard library imports
 import argparse
-import threading
+import logging
+import os
 import subprocess
+import sys
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Third-party imports
+import uvicorn
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-import uvicorn
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-from app.core.config import settings
+# Local application imports
 from app.api.v1.router import api_router
+from app.core.config import settings
+from app.core.logger import logger
+from app.document_loader import load_pdf_documents
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events.
+    This is the modern FastAPI approach (replaces deprecated @app.on_event).
+    """
+    # Startup
+    logger.info("FastAPI application startup initiated.")
+    try:
+        # Load PDF documents from policies folder
+        logger.info("Loading PDF documents from policies folder...")
+        documents = load_pdf_documents()
+        
+        # Store documents in app state for access throughout the application
+        app.state.documents = documents
+        app.state.document_count = len(documents)
+        
+        logger.info(f"Loaded {len(documents)} document pages from policies folder.")
+        logger.info("Backend initialization completed successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize backend resources: {e}", exc_info=True)
+        # Set empty documents list on error to prevent crashes
+        app.state.documents = []
+        app.state.document_count = 0
+        raise
+    
+    yield
+    
+    # Shutdown (if needed)
+    # Clean up resources here
+    logger.info("FastAPI application shutdown.")
 
 
 def create_application() -> FastAPI:
@@ -32,6 +72,7 @@ def create_application() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
+        lifespan=lifespan,  # Modern lifespan event handler
     )
 
     # Configure CORS
@@ -110,7 +151,7 @@ if __name__ == "__main__":
         fastapi_thread.start()
         
         # Run Streamlit in the main thread (blocking)
-        print(f"Starting FastAPI on http://{settings.HOST}:{settings.PORT}")
-        print(f"Starting Streamlit on http://{settings.HOST}:{os.getenv('STREAMLIT_PORT', '8501')}")
+        logger.info(f"Starting FastAPI on http://{settings.HOST}:{settings.PORT}")
+        logger.info(f"Starting Streamlit on http://{settings.HOST}:{os.getenv('STREAMLIT_PORT', '8501')}")
         run_streamlit()
 
