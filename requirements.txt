@@ -1,0 +1,7 @@
+fastapi==0.127.0
+uvicorn==0.40.0
+pydantic==2.12.5
+pydantic-core==2.41.5
+email-validator==2.1.0
+streamlit==1.39.0
+requests==2.32.3
