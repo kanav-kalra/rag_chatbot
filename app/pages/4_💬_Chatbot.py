@@ -1,5 +1,5 @@
 """
-Chatbot Page - Interactive HR Chatbot Interface
+Chatbot Page - Interactive HR Chatbot Interface with Session Management
 """
 import sys
 from pathlib import Path
@@ -21,9 +21,12 @@ st.set_page_config(
 
 st.title("💬 HR Chatbot")
 
-# Initialize session state for chat messages
+# Initialize session state for chat messages and session ID
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
+if "session_id" not in st.session_state:
+    st.session_state.session_id = None
 
 # API endpoint
 API_URL = "http://127.0.0.1:8000/api/v1/chat"
@@ -45,6 +48,16 @@ col1, col2 = st.columns([1, 4])
 with col1:
     if st.button("🔄 Reset Chat", use_container_width=True):
         st.session_state.messages = []
+        # Optionally delete the session on the server
+        if st.session_state.session_id:
+            try:
+                requests.delete(
+                    f"http://127.0.0.1:8000/api/v1/chat/sessions/{st.session_state.session_id}",
+                    timeout=2
+                )
+            except:
+                pass  # Ignore errors when deleting session
+        st.session_state.session_id = None
         st.rerun()
 
 # Chat input - handles Enter key automatically
@@ -61,11 +74,13 @@ if user_query:
     # Show loading indicator and get response
     with st.spinner("Thinking..."):
         try:
-            # Call API with just the latest query
+            # Prepare request payload
             payload = {
-                "message": user_query
+                "message": user_query,
+                "session_id": st.session_state.session_id
             }
             
+            # Call API
             response = requests.post(API_URL, json=payload, timeout=30)
             response.raise_for_status()
             
@@ -73,12 +88,27 @@ if user_query:
             api_response = response.json()
             response_text = api_response.get("response", "No response received")
             
+            # Store session ID from response
+            if "session_id" in api_response:
+                st.session_state.session_id = api_response["session_id"]
+            
             # Add assistant response to chat
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": response_text
             })
             
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"API Error: {str(e)}"
+            if e.response.status_code == 503:
+                error_msg = "Service temporarily unavailable. Please try again later."
+            elif e.response.status_code == 500:
+                error_msg = "Server error. Please try again later."
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"❌ {error_msg}"
+            })
+            st.error(error_msg)
         except requests.exceptions.RequestException as e:
             error_msg = f"Failed to connect to API: {str(e)}"
             st.session_state.messages.append({
@@ -113,6 +143,10 @@ with st.sidebar:
     
     st.header("🔗 API Connection")
     st.write(f"**Endpoint:** {API_URL}")
+    
+    # Display session info
+    if st.session_state.session_id:
+        st.info(f"**Session ID:** `{st.session_state.session_id[:8]}...`")
     
     # Test API connection
     try:

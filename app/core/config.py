@@ -3,7 +3,7 @@ Application Configuration
 """
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 # Load environment variables from .env file if it exists
 from dotenv import load_dotenv
@@ -64,6 +64,15 @@ class Settings:
     
     # Ollama Configuration (optional)
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    
+    # Session Management Configuration
+    MAX_CONCURRENT_SESSIONS: Optional[int] = (
+        int(os.getenv("MAX_CONCURRENT_SESSIONS"))
+        if os.getenv("MAX_CONCURRENT_SESSIONS")
+        else None
+    )
+    SESSION_TIMEOUT_HOURS: int = int(os.getenv("SESSION_TIMEOUT_HOURS", "24"))
+    AGENT_POOL_SIZE: int = int(os.getenv("AGENT_POOL_SIZE", "1"))  # Default: 1 shared agent
 
 
 # Create settings instance
