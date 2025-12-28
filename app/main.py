@@ -25,6 +25,7 @@ if str(project_root) not in sys.path:
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logger import logger
+from app.core.rate_limiter import RateLimitMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -73,6 +74,15 @@ def create_application() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    
+    # Add rate limiting middleware (only in production)
+    if not settings.DEBUG:
+        application.add_middleware(
+            RateLimitMiddleware,
+            requests_per_minute=60,
+            requests_per_hour=1000
+        )
+        logger.info("Rate limiting middleware enabled")
 
     # Include API routers
     application.include_router(api_router, prefix=settings.API_PREFIX)
