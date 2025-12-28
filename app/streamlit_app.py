@@ -48,6 +48,7 @@ with col2:
     st.write("• **Dashboard** - Overview and metrics")
     st.write("• **API Explorer** - Test API endpoints")
     st.write("• **Settings** - Application configuration")
+    st.write("• **Chatbot** - Interactive HR chatbot")
 
 st.divider()
 
