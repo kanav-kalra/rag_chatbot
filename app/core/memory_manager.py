@@ -38,7 +38,8 @@ class MemoryManager:
     def process_messages(
         self,
         messages: List[BaseMessage],
-        thread_id: str
+        thread_id: str,
+        max_tokens: Optional[int] = None
     ) -> List[BaseMessage]:
         """
         Process messages based on memory strategy.
@@ -46,16 +47,31 @@ class MemoryManager:
         Args:
             messages: List of messages in the conversation
             thread_id: Thread identifier (for logging)
+            max_tokens: Optional maximum tokens to allow (for context length management)
             
         Returns:
             Processed list of messages
         """
         if self.config.strategy == MemoryStrategy.NONE:
+            # Even with NONE strategy, trim if we're over token limit
+            if max_tokens:
+                return self._trim_by_tokens(messages, max_tokens)
             return messages
         
         # Count non-system messages
         non_system_messages = [msg for msg in messages if not isinstance(msg, SystemMessage)]
         message_count = len(non_system_messages)
+        
+        # If we have a token limit, check if we're over it
+        if max_tokens:
+            estimated_tokens = self._estimate_tokens(messages)
+            if estimated_tokens > max_tokens * 0.9:  # Use 90% of limit as threshold
+                logger.warning(
+                    f"Estimated tokens ({estimated_tokens}) approaching limit ({max_tokens}). "
+                    f"Applying aggressive trimming for thread {thread_id}"
+                )
+                # Aggressively trim to stay under limit
+                return self._trim_by_tokens(messages, int(max_tokens * 0.7))  # Keep 70% of limit
         
         if message_count <= self.config.summarize_threshold:
             # No need to process yet
@@ -74,6 +90,53 @@ class MemoryManager:
             return self._trim_and_summarize_messages(messages)
         
         return messages
+    
+    def _estimate_tokens(self, messages: List[BaseMessage]) -> int:
+        """
+        Estimate token count for messages (rough approximation: 1 token ≈ 4 characters).
+        
+        Args:
+            messages: List of messages
+            
+        Returns:
+            Estimated token count
+        """
+        total_chars = sum(len(str(msg.content)) for msg in messages if hasattr(msg, 'content'))
+        return int(total_chars / 4)  # Rough approximation
+    
+    def _trim_by_tokens(self, messages: List[BaseMessage], max_tokens: int) -> List[BaseMessage]:
+        """
+        Trim messages to stay under token limit, keeping most recent messages.
+        
+        Args:
+            messages: List of messages
+            max_tokens: Maximum tokens to keep
+            
+        Returns:
+            Trimmed list of messages
+        """
+        # Keep system messages
+        system_messages = [msg for msg in messages if isinstance(msg, SystemMessage)]
+        non_system_messages = [msg for msg in messages if not isinstance(msg, SystemMessage)]
+        
+        # Start from the end and work backwards
+        kept_messages = []
+        current_tokens = sum(self._estimate_tokens([msg]) for msg in system_messages)
+        
+        for msg in reversed(non_system_messages):
+            msg_tokens = self._estimate_tokens([msg])
+            if current_tokens + msg_tokens <= max_tokens:
+                kept_messages.insert(0, msg)
+                current_tokens += msg_tokens
+            else:
+                break
+        
+        logger.info(
+            f"Trimmed messages by tokens: {len(non_system_messages)} -> {len(kept_messages)} "
+            f"(target: {max_tokens} tokens, actual: ~{current_tokens} tokens)"
+        )
+        
+        return system_messages + kept_messages
     
     def _trim_messages(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         """
@@ -185,7 +248,14 @@ class MemoryManager:
         """
         try:
             # Get LLM for summarization
-            llm = self._summarize_llm or get_llm()
+            if self._summarize_llm:
+                llm = self._summarize_llm
+                model_name = self.config.summarize_model or "custom model"
+            else:
+                llm = get_llm()
+                model_name = "default chat model"
+            
+            logger.info(f"Using {model_name} for summarization (high context window model)")
             
             # Convert messages to text
             conversation_text = "\n".join([
@@ -206,7 +276,7 @@ Summary:"""
             response = llm.invoke(prompt)
             summary = response.content if hasattr(response, 'content') else str(response)
             
-            logger.debug(f"Generated summary (length: {len(summary)} chars)")
+            logger.info(f"Generated summary using {model_name} (length: {len(summary)} chars, from {len(messages)} messages)")
             return summary
             
         except Exception as e:

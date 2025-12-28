@@ -83,6 +83,7 @@ class Settings:
     DEFAULT_MEMORY_STRATEGY: str = os.getenv("DEFAULT_MEMORY_STRATEGY", "none")
     MEMORY_TRIM_KEEP_MESSAGES: int = int(os.getenv("MEMORY_TRIM_KEEP_MESSAGES", "10"))  # Keep last N messages
     MEMORY_SUMMARIZE_THRESHOLD: int = int(os.getenv("MEMORY_SUMMARIZE_THRESHOLD", "20"))  # Summarize when messages exceed this
+    MEMORY_SUMMARIZE_MODEL: str = os.getenv("MEMORY_SUMMARIZE_MODEL", "gpt-3.5-turbo-16k")  # Model for summarization (should have high context window)
 
 
 # Create settings instance

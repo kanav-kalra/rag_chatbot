@@ -43,7 +43,8 @@ class HRChatbot(ChatbotAgent):
         memory_config: Optional[MemoryConfig] = None,
         memory_strategy: Optional[str] = None,
         trim_keep_messages: Optional[int] = None,
-        summarize_threshold: Optional[int] = None
+        summarize_threshold: Optional[int] = None,
+        summarize_model: Optional[str] = None
     ):
         """
         Initialize HR chatbot.
@@ -61,6 +62,7 @@ class HRChatbot(ChatbotAgent):
             memory_strategy: Memory strategy - "none", "trim", "summarize", "trim_and_summarize" (optional)
             trim_keep_messages: Number of messages to keep when trimming (optional)
             summarize_threshold: Message count threshold for summarization (optional)
+            summarize_model: Model name for summarization (should have high context window, optional)
         """
         # Initialize vector store if requested
         if initialize_vector_store:
@@ -91,6 +93,8 @@ class HRChatbot(ChatbotAgent):
                 memory_config.trim_keep_messages = trim_keep_messages
             if summarize_threshold is not None:
                 memory_config.summarize_threshold = summarize_threshold
+            if summarize_model is not None:
+                memory_config.summarize_model = summarize_model
         
         # Initialize parent class
         super().__init__(
@@ -154,7 +158,8 @@ def create_hr_chatbot_agent(
     memory_config: Optional[MemoryConfig] = None,
     memory_strategy: Optional[str] = None,
     trim_keep_messages: Optional[int] = None,
-    summarize_threshold: Optional[int] = None
+    summarize_threshold: Optional[int] = None,
+    summarize_model: Optional[str] = None
 ):
     """
     Create an HR chatbot agent (factory function for backward compatibility).
@@ -188,7 +193,8 @@ def create_hr_chatbot_agent(
         memory_config=memory_config,
         memory_strategy=memory_strategy,
         trim_keep_messages=trim_keep_messages,
-        summarize_threshold=summarize_threshold
+        summarize_threshold=summarize_threshold,
+        summarize_model=summarize_model
     )
     return chatbot.agent  # Return the underlying agent for backward compatibility
 
@@ -205,7 +211,8 @@ def create_hr_chatbot(
     memory_config: Optional[MemoryConfig] = None,
     memory_strategy: Optional[str] = None,
     trim_keep_messages: Optional[int] = None,
-    summarize_threshold: Optional[int] = None
+    summarize_threshold: Optional[int] = None,
+    summarize_model: Optional[str] = None
 ) -> HRChatbot:
     """
     Create an HR chatbot instance (new OOP interface).
@@ -219,6 +226,10 @@ def create_hr_chatbot(
         api_key: API key for the model provider (optional)
         base_url: Base URL for the model API (optional, mainly for Ollama)
         initialize_vector_store: Whether to initialize vector store (default: False)
+        memory_config: Memory configuration object (optional, overrides other memory params)
+        memory_strategy: Memory strategy - "none", "trim", "summarize", "trim_and_summarize" (optional)
+        trim_keep_messages: Number of messages to keep when trimming (optional)
+        summarize_threshold: Message count threshold for summarization (optional)
         
     Returns:
         HRChatbot instance
@@ -235,7 +246,81 @@ def create_hr_chatbot(
         memory_config=memory_config,
         memory_strategy=memory_strategy,
         trim_keep_messages=trim_keep_messages,
-        summarize_threshold=summarize_threshold
+        summarize_threshold=summarize_threshold,
+        summarize_model=summarize_model
+    )
+
+
+def get_default_hr_chatbot() -> HRChatbot:
+    """
+    Get or create a default HR chatbot instance with configuration from settings.
+    This is a convenience function that creates an HR chatbot with default settings.
+    For API use, this creates a singleton instance.
+    
+    Returns:
+        HRChatbot instance configured with settings
+    """
+    # Memory config is automatically loaded from settings via get_memory_config("hr")
+    # which uses get_memory_config_from_settings internally
+    return create_hr_chatbot(
+        initialize_vector_store=False,  # Vector store should be initialized on startup
+        verbose=False
+    )
+
+
+def create_hr_chatbot_with_custom_memory(
+    memory_strategy: str,
+    trim_keep_messages: Optional[int] = None,
+    summarize_threshold: Optional[int] = None,
+    summarize_model: Optional[str] = None,
+    model_name: Optional[str] = None,
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    verbose: bool = False,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None
+) -> HRChatbot:
+    """
+    Create an HR chatbot instance with custom memory configuration.
+    This is a convenience function for creating chatbots with specific memory strategies.
+    
+    Args:
+        memory_strategy: Memory strategy - "none", "trim", "summarize", "trim_and_summarize"
+        trim_keep_messages: Number of messages to keep when trimming (optional, uses default if None)
+        summarize_threshold: Message count threshold for summarization (optional, uses default if None)
+        model_name: Name of the LLM model to use (optional)
+        temperature: Temperature for the model (optional)
+        max_tokens: Maximum tokens for responses (optional)
+        verbose: Whether to enable verbose logging (default: False)
+        api_key: API key for the model provider (optional)
+        base_url: Base URL for the model API (optional)
+        
+    Returns:
+        HRChatbot instance with custom memory configuration
+        
+    Raises:
+        ValueError: If memory_strategy is invalid
+    """
+    try:
+        MemoryStrategy(memory_strategy)  # Validate strategy
+    except ValueError:
+        raise ValueError(
+            f"Invalid memory_strategy: {memory_strategy}. "
+            "Must be one of: none, trim, summarize, trim_and_summarize"
+        )
+    
+    return create_hr_chatbot(
+        model_name=model_name,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        verbose=verbose,
+        api_key=api_key,
+        base_url=base_url,
+        initialize_vector_store=False,
+        memory_strategy=memory_strategy,
+        trim_keep_messages=trim_keep_messages,
+        summarize_threshold=summarize_threshold,
+        summarize_model=summarize_model
     )
 
 
@@ -245,6 +330,8 @@ __all__ = [
     "initialize_hr_chatbot_vector_store",
     "create_hr_chatbot_agent",
     "create_hr_chatbot",
+    "get_default_hr_chatbot",
+    "create_hr_chatbot_with_custom_memory",
     "chat_with_agent",
     "get_available_models",
     "get_llm",

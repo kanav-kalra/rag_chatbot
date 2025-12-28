@@ -16,8 +16,11 @@ from pydantic import BaseModel, Field
 
 from app.core.logger import logger
 from app.core.config import settings
-from app.chatbot.hr_chatbot import create_hr_chatbot, initialize_hr_chatbot_vector_store
-from app.core.memory_config import MemoryConfig, MemoryStrategy
+from app.chatbot.hr_chatbot import (
+    get_default_hr_chatbot,
+    create_hr_chatbot_with_custom_memory,
+    initialize_hr_chatbot_vector_store
+)
 from app.llm_manager import get_available_models
 import uuid
 
@@ -30,6 +33,7 @@ _hr_chatbot: Optional[Any] = None
 def get_hr_chatbot():
     """
     Get or create the HR chatbot instance (singleton).
+    Uses default configuration from settings.
     
     Returns:
         HRChatbot instance
@@ -37,26 +41,8 @@ def get_hr_chatbot():
     global _hr_chatbot
     if _hr_chatbot is None:
         try:
-            # Get memory configuration from settings
-            memory_strategy = getattr(settings, 'DEFAULT_MEMORY_STRATEGY', 'none')
-            trim_keep = getattr(settings, 'MEMORY_TRIM_KEEP_MESSAGES', 10)
-            summarize_threshold = getattr(settings, 'MEMORY_SUMMARIZE_THRESHOLD', 20)
-            
-            # Create memory config for HR chatbot
-            memory_config = MemoryConfig(
-                strategy=MemoryStrategy(memory_strategy),
-                trim_keep_messages=trim_keep,
-                summarize_threshold=summarize_threshold
-            )
-            
-            _hr_chatbot = create_hr_chatbot(
-                initialize_vector_store=False,  # Already initialized on startup
-                verbose=False,
-                memory_config=memory_config
-            )
-            logger.info(
-                f"HR chatbot initialized with memory strategy: {memory_strategy}"
-            )
+            _hr_chatbot = get_default_hr_chatbot()
+            logger.info("HR chatbot initialized with default configuration from settings")
         except Exception as e:
             logger.error(f"Failed to create HR chatbot: {e}", exc_info=True)
             raise HTTPException(
@@ -181,36 +167,38 @@ async def chat_with_custom_agent(
         # Get or generate session_id (thread_id for checkpointer)
         thread_id = request.session_id or str(uuid.uuid4())
         
-        # Create memory config if memory parameters are provided
-        memory_config = None
-        if request.memory_strategy or request.trim_keep_messages or request.summarize_threshold:
+        # Create custom HR chatbot instance
+        # If memory parameters are provided, use custom memory configuration
+        if request.memory_strategy:
             try:
-                strategy = MemoryStrategy(request.memory_strategy) if request.memory_strategy else MemoryStrategy.NONE
-                memory_config = MemoryConfig(
-                    strategy=strategy,
-                    trim_keep_messages=request.trim_keep_messages or 10,
-                    summarize_threshold=request.summarize_threshold or 20
+                chatbot = create_hr_chatbot_with_custom_memory(
+                    memory_strategy=request.memory_strategy,
+                    trim_keep_messages=request.trim_keep_messages,
+                    summarize_threshold=request.summarize_threshold,
+                    model_name=request.model_name,
+                    temperature=request.temperature,
+                    max_tokens=request.max_tokens,
+                    verbose=request.verbose,
+                    api_key=request.api_key,
+                    base_url=request.base_url
                 )
             except ValueError as e:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid memory_strategy: {request.memory_strategy}. Must be one of: none, trim, summarize, trim_and_summarize"
+                    detail=str(e)
                 )
-        
-        # Create custom HR chatbot instance
-        chatbot = create_hr_chatbot(
-            model_name=request.model_name,
-            temperature=request.temperature,
-            max_tokens=request.max_tokens,
-            verbose=request.verbose,
-            api_key=request.api_key,
-            base_url=request.base_url,
-            initialize_vector_store=False,
-            memory_config=memory_config,
-            memory_strategy=request.memory_strategy,
-            trim_keep_messages=request.trim_keep_messages,
-            summarize_threshold=request.summarize_threshold
-        )
+        else:
+            # Use default chatbot with custom model parameters if provided
+            from app.chatbot.hr_chatbot import create_hr_chatbot
+            chatbot = create_hr_chatbot(
+                model_name=request.model_name,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens,
+                verbose=request.verbose,
+                api_key=request.api_key,
+                base_url=request.base_url,
+                initialize_vector_store=False
+            )
         
         # Chat with the chatbot
         response_text = chatbot.chat(

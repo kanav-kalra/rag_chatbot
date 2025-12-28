@@ -51,16 +51,19 @@ class MemoryConfig:
 
 # Default memory configurations for different chatbots
 # These can be overridden via environment variables or API parameters
+# Default summarize_model uses a model with higher context window for better summarization
 DEFAULT_MEMORY_CONFIGS = {
     "hr": MemoryConfig(
-        strategy=MemoryStrategy.NONE,  # Can be overridden via settings or API
+        strategy=MemoryStrategy.SUMMARIZE,  # Can be overridden via settings or API
         trim_keep_messages=10,
-        summarize_threshold=20,
+        summarize_threshold=2,
+        summarize_model="gpt-3.5-turbo-16k",  # Use high-context model for summarization
     ),
     "default": MemoryConfig(
         strategy=MemoryStrategy.NONE,
         trim_keep_messages=10,
         summarize_threshold=20,
+        summarize_model="gpt-3.5-turbo-16k",  # Use high-context model for summarization
     ),
 }
 
@@ -91,6 +94,11 @@ def get_memory_config_from_settings(chatbot_type: str = "default") -> MemoryConf
     
     config.trim_keep_messages = getattr(settings, 'MEMORY_TRIM_KEEP_MESSAGES', config.trim_keep_messages)
     config.summarize_threshold = getattr(settings, 'MEMORY_SUMMARIZE_THRESHOLD', config.summarize_threshold)
+    
+    # Override summarize_model from settings if provided
+    summarize_model = getattr(settings, 'MEMORY_SUMMARIZE_MODEL', None)
+    if summarize_model:
+        config.summarize_model = summarize_model
     
     return config
 

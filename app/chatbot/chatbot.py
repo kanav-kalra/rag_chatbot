@@ -140,42 +140,74 @@ class ChatbotAgent:
         try:
             # Prepare input messages
             from langchain_core.messages import HumanMessage
-            messages = [HumanMessage(content=query)]
+            from app.core.checkpointer_manager import get_checkpointer_manager, get_checkpointer
             
+            messages = [HumanMessage(content=query)]
             inputs = {"messages": messages}
             
             # Create config with thread_id for checkpointer
-            from app.core.checkpointer_manager import get_checkpointer_manager
             config = get_checkpointer_manager().get_config(thread_id, user_id)
+            checkpointer = get_checkpointer()
+            
+            # Process messages BEFORE invocation to prevent context length errors
+            # This applies memory management and token-based trimming
+            try:
+                # Get current state from checkpointer
+                checkpoint = checkpointer.get(config)
+                if checkpoint and "channel_values" in checkpoint:
+                    state = checkpoint["channel_values"]
+                    if "messages" in state:
+                        existing_messages = state["messages"]
+                        
+                        # Determine max tokens based on model (default: 8192 for gpt-3.5-turbo)
+                        # Reserve space for response (max_tokens) and functions
+                        model_max_tokens = 8192  # Default for gpt-3.5-turbo
+                        if "gpt-4" in self.model_name.lower():
+                            model_max_tokens = 8192
+                        elif "gpt-3.5" in self.model_name.lower():
+                            model_max_tokens = 16385  # gpt-3.5-turbo-16k
+                        
+                        # Reserve tokens for response and functions (estimate 500 tokens)
+                        available_tokens = model_max_tokens - (self.max_tokens or 2000) - 500
+                        
+                        # Process messages with memory manager (always process if memory manager exists)
+                        if self._memory_manager:
+                            processed_messages = self._memory_manager.process_messages(
+                                existing_messages, thread_id, max_tokens=available_tokens
+                            )
+                        else:
+                            # Even without memory manager, trim if over token limit
+                            from app.core.memory_manager import MemoryManager
+                            temp_manager = MemoryManager(self.memory_config)
+                            processed_messages = temp_manager.process_messages(
+                                existing_messages, thread_id, max_tokens=available_tokens
+                            )
+                        
+                        # If messages were processed, we need to update the checkpoint
+                        # However, LangGraph's checkpointer API doesn't have a simple put method
+                        # So we'll pass the processed messages directly in the input
+                        # This is a workaround - the agent will still load from checkpoint,
+                        # but we'll override with processed messages
+                        if processed_messages != existing_messages:
+                            # Update inputs to include processed messages (excluding the new user message)
+                            # The agent will merge these with the checkpoint
+                            inputs["messages"] = processed_messages + messages
+                            
+                            logger.info(
+                                f"Memory management processed {len(existing_messages)} -> "
+                                f"{len(processed_messages)} messages for thread {thread_id} "
+                                f"(max_tokens: {available_tokens}). Using processed messages in input."
+                            )
+                        else:
+                            # Even if not processed, include existing messages to maintain context
+                            inputs["messages"] = existing_messages + messages
+            except Exception as e:
+                logger.warning(f"Memory management processing failed: {e}", exc_info=True)
+                # Continue with unprocessed messages if memory management fails
             
             # Invoke agent with checkpointer config
-            # The checkpointer automatically manages conversation history
+            # The checkpointer will now have processed messages if memory management is enabled
             result = self.agent.invoke(inputs, config=config)
-            
-            # If memory management is enabled, process messages after invocation
-            # This is a post-processing step to trim/summarize if needed
-            if self._memory_manager:
-                try:
-                    # Get the updated state from checkpointer
-                    checkpointer = get_checkpointer()
-                    checkpoint = checkpointer.get(config)
-                    if checkpoint and "channel_values" in checkpoint:
-                        state = checkpoint["channel_values"]
-                        if "messages" in state and len(state["messages"]) > self.memory_config.summarize_threshold:
-                            # Process messages with memory manager
-                            processed_messages = self._memory_manager.process_messages(
-                                state["messages"], thread_id
-                            )
-                            # Note: In a production system, you might want to update
-                            # the checkpoint with processed messages, but this requires
-                            # more complex state management. For now, this serves as
-                            # a placeholder for future enhancement.
-                            logger.debug(
-                                f"Memory management processed {len(state['messages'])} messages "
-                                f"for thread {thread_id}"
-                            )
-                except Exception as e:
-                    logger.debug(f"Memory management processing skipped: {e}")
             
             # Extract response from the result
             response = self._extract_response(result)
