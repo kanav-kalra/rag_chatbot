@@ -2,7 +2,18 @@
 Application Configuration
 """
 import os
+from pathlib import Path
 from typing import List
+
+# Load environment variables from .env file if it exists
+from dotenv import load_dotenv
+
+# Get the project root directory (two levels up from this file)
+project_root = Path(__file__).parent.parent.parent
+env_path = project_root / ".env"
+
+# Load .env file if it exists
+load_dotenv(dotenv_path=env_path)
 
 
 class Settings:
@@ -38,6 +49,24 @@ class Settings:
     
     # Logging Configuration
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+<<<<<<< HEAD
+    
+    # OpenAI Configuration
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    
+    # LLM Model Configuration
+    # Supported models: "gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "claude-3-opus", "claude-3-sonnet", "gpt-4o"
+    CHAT_MODEL: str = os.getenv("CHAT_MODEL", "gpt-3.5-turbo")
+    CHAT_MODEL_TEMPERATURE: float = float(os.getenv("CHAT_MODEL_TEMPERATURE", "0.7"))
+    CHAT_MODEL_MAX_TOKENS: int = int(os.getenv("CHAT_MODEL_MAX_TOKENS", "2000"))
+    
+    # Anthropic Configuration (optional)
+    ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+    
+    # Ollama Configuration (optional)
+    OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+=======
+>>>>>>> a842026ef8fc1e096b2006f4885e6d143a74d73c
 
 
 # Create settings instance

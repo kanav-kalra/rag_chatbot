@@ -25,8 +25,6 @@ if str(project_root) not in sys.path:
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logger import logger
-from app.document_loader import load_pdf_documents
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -36,23 +34,15 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     logger.info("FastAPI application startup initiated.")
+    
+    # Initialize HR chatbot vector store (if HR chatbot is being used)
     try:
-        # Load PDF documents from policies folder
-        logger.info("Loading PDF documents from policies folder...")
-        documents = load_pdf_documents()
-        
-        # Store documents in app state for access throughout the application
-        app.state.documents = documents
-        app.state.document_count = len(documents)
-        
-        logger.info(f"Loaded {len(documents)} document pages from policies folder.")
-        logger.info("Backend initialization completed successfully.")
+        from app.chatbot.hr_chatbot import initialize_hr_chatbot_vector_store
+        initialize_hr_chatbot_vector_store()
+    except ImportError:
+        logger.debug("HR chatbot module not available, skipping vector store initialization.")
     except Exception as e:
-        logger.error(f"Failed to initialize backend resources: {e}", exc_info=True)
-        # Set empty documents list on error to prevent crashes
-        app.state.documents = []
-        app.state.document_count = 0
-        raise
+        logger.warning(f"HR chatbot vector store initialization failed: {e}. Continuing without it.")
     
     yield
     

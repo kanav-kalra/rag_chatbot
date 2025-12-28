@@ -97,7 +97,43 @@ export PORT=8000
 export STREAMLIT_PORT=8501
 export DEBUG=True
 export HOST=0.0.0.0
+
+# Required for OpenAI embeddings and vector store functionality
+export OPENAI_API_KEY="your-openai-api-key-here"
 ```
+
+### Setting OPENAI_API_KEY
+
+The `OPENAI_API_KEY` is required for the document loader's memory builder functionality. You can set it in several ways:
+
+1. **Using export command (temporary - for current terminal session):**
+   ```bash
+   export OPENAI_API_KEY="sk-your-api-key-here"
+   ```
+
+2. **Using .env file (recommended):**
+   Create a `.env` file in the project root:
+   ```bash
+   echo 'OPENAI_API_KEY=sk-your-api-key-here' > .env
+   ```
+   Then load it in your shell:
+   ```bash
+   source .env  # Note: this won't auto-load, you need to export it
+   export $(cat .env | xargs)
+   ```
+   
+   Or install `python-dotenv` and load it programmatically:
+   ```bash
+   pip install python-dotenv
+   ```
+
+3. **In your shell profile (persistent):**
+   Add to `~/.bashrc`, `~/.zshrc`, or `~/.profile`:
+   ```bash
+   export OPENAI_API_KEY="sk-your-api-key-here"
+   ```
+
+**Note:** The `.env` file is already in `.gitignore` to keep your API key secure. Never commit your API key to version control.
 
 ## Adding New Streamlit Pages
 
