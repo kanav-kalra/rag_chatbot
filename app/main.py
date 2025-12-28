@@ -25,12 +25,6 @@ if str(project_root) not in sys.path:
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logger import logger
-from app.document_loader import load_pdf_documents
-from app.document_loader.text_splitter import create_text_splitter, split_documents
-# Call memory_builder to build and initialize the in-memory vector store
-from app.document_loader.memory_builder import build_memory_from_pdfs
-# Set up global vector store for tools
-from app.tools.vector_store_manager import set_vector_store
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,13 +34,15 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     logger.info("FastAPI application startup initiated.")
+    
+    # Initialize HR chatbot vector store (if HR chatbot is being used)
     try:
-        vector_store = build_memory_from_pdfs()
-        set_vector_store(vector_store)
-        logger.info("Memory initialized using build_memory_from_pdfs from memory_builder.")
-        logger.info("Vector store set globally for retrieval tools.")
+        from app.chatbot.hr_chatbot import initialize_hr_chatbot_vector_store
+        initialize_hr_chatbot_vector_store()
+    except ImportError:
+        logger.debug("HR chatbot module not available, skipping vector store initialization.")
     except Exception as e:
-        logger.error(f"Error initializing memory: {e}", exc_info=True)
+        logger.warning(f"HR chatbot vector store initialization failed: {e}. Continuing without it.")
     
     yield
     
