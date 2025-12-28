@@ -73,6 +73,16 @@ class Settings:
     )
     SESSION_TIMEOUT_HOURS: int = int(os.getenv("SESSION_TIMEOUT_HOURS", "24"))
     AGENT_POOL_SIZE: int = int(os.getenv("AGENT_POOL_SIZE", "1"))  # Default: 1 shared agent
+    
+    # Redis Configuration
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
+    REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
+    
+    # Memory Management Configuration
+    # Memory strategies: "none", "trim", "summarize", "trim_and_summarize"
+    DEFAULT_MEMORY_STRATEGY: str = os.getenv("DEFAULT_MEMORY_STRATEGY", "none")
+    MEMORY_TRIM_KEEP_MESSAGES: int = int(os.getenv("MEMORY_TRIM_KEEP_MESSAGES", "10"))  # Keep last N messages
+    MEMORY_SUMMARIZE_THRESHOLD: int = int(os.getenv("MEMORY_SUMMARIZE_THRESHOLD", "20"))  # Summarize when messages exceed this
 
 
 # Create settings instance

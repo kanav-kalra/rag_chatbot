@@ -36,6 +36,14 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("FastAPI application startup initiated.")
     
+    # Initialize checkpointer manager (Redis connection)
+    try:
+        from app.core.checkpointer_manager import get_checkpointer_manager
+        manager = get_checkpointer_manager()
+        logger.info(f"Checkpointer initialized: {'Redis' if manager.is_redis else 'In-Memory'}")
+    except Exception as e:
+        logger.warning(f"Checkpointer initialization failed: {e}. Continuing with fallback.")
+    
     # Initialize HR chatbot vector store (if HR chatbot is being used)
     try:
         from app.chatbot.hr_chatbot import initialize_hr_chatbot_vector_store

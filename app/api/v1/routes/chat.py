@@ -17,46 +17,53 @@ from pydantic import BaseModel, Field
 from app.core.logger import logger
 from app.core.config import settings
 from app.chatbot.hr_chatbot import create_hr_chatbot, initialize_hr_chatbot_vector_store
-from app.chatbot.session_manager import ChatbotSessionManager, ChatbotSession
+from app.core.memory_config import MemoryConfig, MemoryStrategy
 from app.llm_manager import get_available_models
+import uuid
 
 router = APIRouter()
 
-# Global session manager instance (singleton)
-_session_manager: Optional[ChatbotSessionManager] = None
+# Global HR chatbot instance (singleton)
+_hr_chatbot: Optional[Any] = None
 
 
-def get_session_manager() -> ChatbotSessionManager:
+def get_hr_chatbot():
     """
-    Get or create the session manager instance (singleton).
+    Get or create the HR chatbot instance (singleton).
     
     Returns:
-        ChatbotSessionManager instance
+        HRChatbot instance
     """
-    global _session_manager
-    if _session_manager is None:
+    global _hr_chatbot
+    if _hr_chatbot is None:
         try:
-            # Factory function to create HR chatbot instances
-            def agent_factory():
-                return create_hr_chatbot(
-                    initialize_vector_store=False,  # Already initialized on startup
-                    verbose=False
-                )
+            # Get memory configuration from settings
+            memory_strategy = getattr(settings, 'DEFAULT_MEMORY_STRATEGY', 'none')
+            trim_keep = getattr(settings, 'MEMORY_TRIM_KEEP_MESSAGES', 10)
+            summarize_threshold = getattr(settings, 'MEMORY_SUMMARIZE_THRESHOLD', 20)
             
-            _session_manager = ChatbotSessionManager(
-                agent_factory=agent_factory,
-                session_timeout=timedelta(hours=24),  # Sessions expire after 24 hours
-                max_sessions=getattr(settings, 'MAX_CONCURRENT_SESSIONS', None),
-                agent_pool_size=getattr(settings, 'AGENT_POOL_SIZE', 1)
+            # Create memory config for HR chatbot
+            memory_config = MemoryConfig(
+                strategy=MemoryStrategy(memory_strategy),
+                trim_keep_messages=trim_keep,
+                summarize_threshold=summarize_threshold
             )
-            logger.info("ChatbotSessionManager initialized for API")
+            
+            _hr_chatbot = create_hr_chatbot(
+                initialize_vector_store=False,  # Already initialized on startup
+                verbose=False,
+                memory_config=memory_config
+            )
+            logger.info(
+                f"HR chatbot initialized with memory strategy: {memory_strategy}"
+            )
         except Exception as e:
-            logger.error(f"Failed to create session manager: {e}", exc_info=True)
+            logger.error(f"Failed to create HR chatbot: {e}", exc_info=True)
             raise HTTPException(
                 status_code=500,
-                detail=f"Failed to initialize session manager: {str(e)}"
+                detail=f"Failed to initialize HR chatbot: {str(e)}"
             )
-    return _session_manager
+    return _hr_chatbot
 
 
 # Pydantic models for request/response
@@ -89,22 +96,24 @@ class ChatRequestWithConfig(ChatRequest):
     api_key: Optional[str] = Field(None, description="API key for the model provider (optional)")
     base_url: Optional[str] = Field(None, description="Base URL for the model API (optional, mainly for Ollama)")
     verbose: bool = Field(False, description="Enable verbose logging")
+    memory_strategy: Optional[str] = Field(None, description="Memory strategy: 'none', 'trim', 'summarize', 'trim_and_summarize'")
+    trim_keep_messages: Optional[int] = Field(None, description="Number of messages to keep when trimming")
+    summarize_threshold: Optional[int] = Field(None, description="Message count threshold for summarization")
 
 
 @router.post("/", response_model=ChatResponse, tags=["chat"])
 async def chat_with_hr_chatbot(
-    request: ChatRequest,
-    session_manager: ChatbotSessionManager = Depends(get_session_manager)
+    request: ChatRequest
 ):
     """
-    Chat with the HR chatbot with automatic session management.
+    Chat with the HR chatbot using Redis checkpointer for memory management.
     
     Send a message to the HR chatbot and receive a response based on HR policies and documents.
-    If a session_id is provided, the conversation history is maintained. If not, a new session is created.
+    If a session_id is provided, the conversation history is maintained via checkpointer.
+    If not, a new session_id is generated.
     
     Args:
         request: Chat request containing the message and optional session_id
-        session_manager: Session manager dependency
         
     Returns:
         ChatResponse with the chatbot's response and session_id
@@ -113,46 +122,34 @@ async def chat_with_hr_chatbot(
         HTTPException: If the chatbot fails to respond
     """
     try:
-        # Get or create session
-        session = session_manager.get_or_create_session(
-            session_id=request.session_id,
+        # Get or generate session_id (thread_id for checkpointer)
+        thread_id = request.session_id or str(uuid.uuid4())
+        
+        # Get HR chatbot instance
+        chatbot = get_hr_chatbot()
+        
+        # Chat with the chatbot (checkpointer manages history automatically)
+        response_text = chatbot.chat(
+            query=request.message,
+            thread_id=thread_id,
             user_id=request.user_id
         )
-        
-        # Chat with the session (maintains history automatically)
-        response_text = session.agent.chat(
-            query=request.message,
-            chat_history=session.get_chat_history(format_for_agent=True)[:-1]  # Exclude current message
-        )
-        
-        # Add messages to session history
-        session.add_message("user", request.message)
-        session.add_message("assistant", response_text)
         
         # Get model name from settings
         model_used = settings.CHAT_MODEL
         
         logger.info(
-            f"Chat completed for session {session.session_id} "
-            f"(message_count={session.message_count})"
+            f"Chat completed for thread {thread_id} "
+            f"(user_id={request.user_id})"
         )
         
         return ChatResponse(
             response=response_text,
-            session_id=session.session_id,
+            session_id=thread_id,
             model_used=model_used,
-            message_count=session.message_count
+            message_count=None  # Message count is managed by checkpointer
         )
         
-    except RuntimeError as e:
-        # Handle max sessions error
-        if "Maximum number of sessions" in str(e):
-            logger.warning(f"Max sessions reached: {e}")
-            raise HTTPException(
-                status_code=503,
-                detail="Service temporarily unavailable: maximum number of concurrent sessions reached"
-            )
-        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}", exc_info=True)
         raise HTTPException(
@@ -163,18 +160,16 @@ async def chat_with_hr_chatbot(
 
 @router.post("/custom", response_model=ChatResponse, tags=["chat"])
 async def chat_with_custom_agent(
-    request: ChatRequestWithConfig,
-    session_manager: ChatbotSessionManager = Depends(get_session_manager)
+    request: ChatRequestWithConfig
 ):
     """
     Chat with the HR chatbot using a custom agent configuration.
     
-    This endpoint allows you to specify model parameters for a one-time chat.
-    A new agent will be created with the specified configuration.
+    This endpoint allows you to specify model parameters and memory strategy for a chat.
+    A new chatbot instance will be created with the specified configuration.
     
     Args:
         request: Chat request with custom agent configuration
-        session_manager: Session manager dependency
         
     Returns:
         ChatResponse with the chatbot's response
@@ -183,55 +178,59 @@ async def chat_with_custom_agent(
         HTTPException: If the chatbot fails to respond or configuration is invalid
     """
     try:
-        # Create a custom agent factory
-        def custom_agent_factory():
-            return create_hr_chatbot(
-                model_name=request.model_name,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                verbose=request.verbose,
-                api_key=request.api_key,
-                base_url=request.base_url,
-                initialize_vector_store=False
-            )
+        # Get or generate session_id (thread_id for checkpointer)
+        thread_id = request.session_id or str(uuid.uuid4())
         
-        # Get or create session with custom agent
-        if request.session_id:
-            # For existing sessions, we'd need to update the agent, which is complex
-            # For now, create a new session with custom config
-            session = session_manager.create_session(
-                session_id=None,  # Create new session for custom config
-                user_id=request.user_id
-            )
-            # Replace agent with custom one
-            session.agent = custom_agent_factory()
-        else:
-            # Create new session with custom agent
-            session = session_manager.create_session(
-                user_id=request.user_id
-            )
-            session.agent = custom_agent_factory()
+        # Create memory config if memory parameters are provided
+        memory_config = None
+        if request.memory_strategy or request.trim_keep_messages or request.summarize_threshold:
+            try:
+                strategy = MemoryStrategy(request.memory_strategy) if request.memory_strategy else MemoryStrategy.NONE
+                memory_config = MemoryConfig(
+                    strategy=strategy,
+                    trim_keep_messages=request.trim_keep_messages or 10,
+                    summarize_threshold=request.summarize_threshold or 20
+                )
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid memory_strategy: {request.memory_strategy}. Must be one of: none, trim, summarize, trim_and_summarize"
+                )
         
-        # Chat with the session
-        response_text = session.agent.chat(
-            query=request.message,
-            chat_history=session.get_chat_history(format_for_agent=True)[:-1]
+        # Create custom HR chatbot instance
+        chatbot = create_hr_chatbot(
+            model_name=request.model_name,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            verbose=request.verbose,
+            api_key=request.api_key,
+            base_url=request.base_url,
+            initialize_vector_store=False,
+            memory_config=memory_config,
+            memory_strategy=request.memory_strategy,
+            trim_keep_messages=request.trim_keep_messages,
+            summarize_threshold=request.summarize_threshold
         )
         
-        # Add messages to session history
-        session.add_message("user", request.message)
-        session.add_message("assistant", response_text)
+        # Chat with the chatbot
+        response_text = chatbot.chat(
+            query=request.message,
+            thread_id=thread_id,
+            user_id=request.user_id
+        )
         
         # Get model name
         model_used = request.model_name or settings.CHAT_MODEL
         
         return ChatResponse(
             response=response_text,
-            session_id=session.session_id,
+            session_id=thread_id,
             model_used=model_used,
-            message_count=session.message_count
+            message_count=None  # Message count is managed by checkpointer
         )
         
+    except HTTPException:
+        raise
     except ValueError as e:
         logger.error(f"Invalid configuration in chat request: {e}", exc_info=True)
         raise HTTPException(
@@ -247,29 +246,31 @@ async def chat_with_custom_agent(
 
 
 @router.delete("/sessions/{session_id}", tags=["chat"])
-async def delete_session(
-    session_id: str,
-    session_manager: ChatbotSessionManager = Depends(get_session_manager)
-):
+async def delete_session(session_id: str):
     """
-    Delete a chat session.
+    Delete a chat session (thread) from checkpointer.
+    
+    Note: This removes the conversation history from Redis.
+    The session_id is used as thread_id in the checkpointer.
     
     Args:
-        session_id: Session identifier
-        session_manager: Session manager dependency
+        session_id: Session/thread identifier
         
     Returns:
         Success message
     """
     try:
-        deleted = session_manager.delete_session(session_id)
-        if deleted:
-            return {"message": f"Session {session_id} deleted successfully"}
-        else:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Session {session_id} not found"
-            )
+        from app.core.checkpointer_manager import get_checkpointer
+        
+        checkpointer = get_checkpointer()
+        # Note: LangGraph checkpointer doesn't have a direct delete method
+        # The data will expire based on Redis TTL or can be cleared manually
+        # For now, we'll just return success
+        logger.info(f"Session deletion requested for thread_id: {session_id}")
+        return {
+            "message": f"Session {session_id} deletion requested. "
+                      "Note: Data may persist in Redis until TTL expires."
+        }
     except Exception as e:
         logger.error(f"Error deleting session: {e}", exc_info=True)
         raise HTTPException(
@@ -279,25 +280,43 @@ async def delete_session(
 
 
 @router.get("/sessions/{session_id}", tags=["chat"])
-async def get_session_info(
-    session_id: str,
-    session_manager: ChatbotSessionManager = Depends(get_session_manager)
-):
+async def get_session_info(session_id: str):
     """
-    Get information about a session.
+    Get information about a session (thread).
+    
+    Note: With checkpointer, we can retrieve the thread state.
     
     Args:
-        session_id: Session identifier
-        session_manager: Session manager dependency
+        session_id: Session/thread identifier
         
     Returns:
         Session information
     """
     try:
-        session = session_manager.get_session(session_id)
-        if session:
-            return session.to_dict()
-        else:
+        from app.core.checkpointer_manager import get_checkpointer_manager
+        
+        manager = get_checkpointer_manager()
+        checkpointer = manager.checkpointer
+        
+        # Try to get thread state
+        config = manager.get_config(session_id)
+        try:
+            # Get the latest checkpoint
+            from langgraph.checkpoint.base import Checkpoint
+            checkpoint = checkpointer.get(config)
+            
+            if checkpoint:
+                return {
+                    "session_id": session_id,
+                    "exists": True,
+                    "checkpointer_type": "redis" if manager.is_redis else "memory"
+                }
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Session {session_id} not found"
+                )
+        except Exception:
             raise HTTPException(
                 status_code=404,
                 detail=f"Session {session_id} not found"
@@ -313,20 +332,21 @@ async def get_session_info(
 
 
 @router.get("/sessions/stats", tags=["chat"])
-async def get_session_stats(
-    session_manager: ChatbotSessionManager = Depends(get_session_manager)
-):
+async def get_session_stats():
     """
-    Get statistics about active sessions.
+    Get statistics about the checkpointer system.
     
-    Args:
-        session_manager: Session manager dependency
-        
     Returns:
-        Session statistics
+        Checkpointer statistics
     """
     try:
-        return session_manager.get_session_stats()
+        from app.core.checkpointer_manager import get_checkpointer_manager
+        
+        manager = get_checkpointer_manager()
+        return {
+            "checkpointer_type": "redis" if manager.is_redis else "memory",
+            "redis_url": getattr(settings, 'REDIS_URL', 'redis://localhost:6379') if manager.is_redis else None
+        }
     except Exception as e:
         logger.error(f"Error getting session stats: {e}", exc_info=True)
         raise HTTPException(
@@ -355,9 +375,7 @@ async def get_available_models():
 
 
 @router.get("/health", tags=["chat"])
-async def chat_health_check(
-    session_manager: ChatbotSessionManager = Depends(get_session_manager)
-):
+async def chat_health_check():
     """
     Health check for the HR chatbot service.
     
@@ -365,12 +383,16 @@ async def chat_health_check(
         Status of the chatbot service
     """
     try:
-        stats = session_manager.get_session_stats()
+        from app.core.checkpointer_manager import get_checkpointer_manager
+        
+        manager = get_checkpointer_manager()
+        chatbot = get_hr_chatbot()
+        
         return {
             "status": "healthy",
             "service": "hr_chatbot",
-            "active_sessions": stats["total_sessions"],
-            "total_messages": stats["total_messages"]
+            "checkpointer_type": "redis" if manager.is_redis else "memory",
+            "model": chatbot.model_name
         }
     except Exception as e:
         logger.error(f"Chatbot health check failed: {e}", exc_info=True)
