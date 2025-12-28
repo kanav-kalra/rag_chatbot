@@ -49,6 +49,7 @@ class Settings:
     
     # Logging Configuration
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+<<<<<<< HEAD
     
     # OpenAI Configuration
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
@@ -64,6 +65,8 @@ class Settings:
     
     # Ollama Configuration (optional)
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+=======
+>>>>>>> a842026ef8fc1e096b2006f4885e6d143a74d73c
 
 
 # Create settings instance
