@@ -15,13 +15,14 @@ from langchain_core.tools import BaseTool
 
 from app.core.config import settings
 from app.core.logger import logger
-from app.chatbot.chatbot import ChatbotAgent, chat_with_agent
-from app.llm_manager import get_llm, get_available_models
+from app.chatbot.chatbot import ChatbotAgent
+from app.llm_manager import get_llm
 from app.chatbot.prompts import HR_CHATBOT_SYSTEM_PROMPT, AGENT_INSTRUCTIONS
 from app.tools.retrieval_tool import retrieve_documents
 from app.document_loader.memory_builder import build_memory_from_pdfs
 from app.tools.vector_store_manager import set_vector_store
 from app.core.memory_config import MemoryConfig, MemoryStrategy, get_memory_config
+from app.chatbot.agent_pool import get_agent_pool
 
 
 class HRChatbot(ChatbotAgent):
@@ -29,6 +30,10 @@ class HRChatbot(ChatbotAgent):
     HR-specific chatbot that extends the generic ChatbotAgent.
     Includes HR-specific prompts and retrieval tools.
     """
+    
+    def _get_chatbot_type(self) -> str:
+        """Get the chatbot type identifier."""
+        return "hr"
     
     def __init__(
         self,
@@ -134,11 +139,11 @@ class HRChatbot(ChatbotAgent):
             raise
 
 
-# Factory functions for backward compatibility and convenience
-def initialize_hr_chatbot_vector_store():
+def _initialize_hr_chatbot_vector_store():
     """
     Initialize the vector store for HR chatbot on application startup.
     This should be called during application startup to load HR documents into the vector store.
+    Private function - use HRChatbot._initialize_vector_store() directly if needed.
     
     Raises:
         Exception: If vector store initialization fails
@@ -146,60 +151,7 @@ def initialize_hr_chatbot_vector_store():
     HRChatbot._initialize_vector_store()
 
 
-def create_hr_chatbot_agent(
-    model_name: Optional[str] = None,
-    temperature: Optional[float] = None,
-    max_tokens: Optional[int] = None,
-    tools: Optional[List[BaseTool]] = None,
-    verbose: bool = False,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
-    initialize_vector_store: bool = False,
-    memory_config: Optional[MemoryConfig] = None,
-    memory_strategy: Optional[str] = None,
-    trim_keep_messages: Optional[int] = None,
-    summarize_threshold: Optional[int] = None,
-    summarize_model: Optional[str] = None
-):
-    """
-    Create an HR chatbot agent (factory function for backward compatibility).
-    
-    Args:
-        model_name: Name of the LLM model to use (default: from settings)
-        temperature: Temperature for the model (default: from settings)
-        max_tokens: Maximum tokens for responses (default: from settings)
-        tools: List of additional tools for the agent (default: [retrieve_documents])
-        verbose: Whether to enable verbose logging (default: False)
-        api_key: API key for the model provider (optional)
-        base_url: Base URL for the model API (optional, mainly for Ollama)
-        initialize_vector_store: Whether to initialize vector store (default: False)
-        
-    Returns:
-        CompiledStateGraph instance (LangChain 1.0+ agent) configured for HR chatbot
-        
-    Raises:
-        ValueError: If model configuration is invalid
-        RuntimeError: If agent creation fails
-    """
-    chatbot = HRChatbot(
-        model_name=model_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        tools=tools,
-        verbose=verbose,
-        api_key=api_key,
-        base_url=base_url,
-        initialize_vector_store=initialize_vector_store,
-        memory_config=memory_config,
-        memory_strategy=memory_strategy,
-        trim_keep_messages=trim_keep_messages,
-        summarize_threshold=summarize_threshold,
-        summarize_model=summarize_model
-    )
-    return chatbot.agent  # Return the underlying agent for backward compatibility
-
-
-def create_hr_chatbot(
+def _create_hr_chatbot(
     model_name: Optional[str] = None,
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
@@ -215,7 +167,8 @@ def create_hr_chatbot(
     summarize_model: Optional[str] = None
 ) -> HRChatbot:
     """
-    Create an HR chatbot instance (new OOP interface).
+    Create an HR chatbot instance (private factory function).
+    Agents should be fetched from agent pool, not created directly.
     
     Args:
         model_name: Name of the LLM model to use (default: from settings)
@@ -230,6 +183,7 @@ def create_hr_chatbot(
         memory_strategy: Memory strategy - "none", "trim", "summarize", "trim_and_summarize" (optional)
         trim_keep_messages: Number of messages to keep when trimming (optional)
         summarize_threshold: Message count threshold for summarization (optional)
+        summarize_model: Model name for summarization (optional)
         
     Returns:
         HRChatbot instance
@@ -251,119 +205,56 @@ def create_hr_chatbot(
     )
 
 
-def get_default_hr_chatbot() -> HRChatbot:
+def _get_default_hr_chatbot() -> HRChatbot:
     """
     Get or create a default HR chatbot instance with configuration from settings.
-    This is a convenience function that creates an HR chatbot with default settings.
-    Note: This creates a new instance each time. For singleton behavior, use get_hr_chatbot().
+    Private function - use get_hr_chatbot() to get from agent pool instead.
     
     Returns:
         HRChatbot instance configured with settings
     """
     # Memory config is automatically loaded from settings via get_memory_config("hr")
     # which uses get_memory_config_from_settings internally
-    return create_hr_chatbot(
+    return _create_hr_chatbot(
         initialize_vector_store=False,  # Vector store should be initialized on startup
         verbose=False
     )
 
 
-# Global singleton instance
-_hr_chatbot_singleton: Optional[HRChatbot] = None
-
-
 def get_hr_chatbot() -> HRChatbot:
     """
-    Get or create the HR chatbot singleton instance.
+    Get an HR chatbot instance from the agent pool.
     Uses default configuration from settings.
     
-    This is the recommended way to get the HR chatbot for API use,
-    as it ensures only one instance is created and reused across requests.
-    The singleton is thread-safe for concurrent API requests.
+    This is the recommended way to get the HR chatbot for API use.
+    The agent pool ensures efficient resource usage across multiple requests.
+    Thread-safe for concurrent API requests.
     
     Returns:
-        HRChatbot instance (singleton)
+        HRChatbot instance from agent pool
         
     Raises:
         RuntimeError: If chatbot initialization fails
     """
-    global _hr_chatbot_singleton
-    if _hr_chatbot_singleton is None:
-        try:
-            _hr_chatbot_singleton = get_default_hr_chatbot()
-            logger.info("HR chatbot singleton initialized with default configuration from settings")
-        except Exception as e:
-            logger.error(f"Failed to create HR chatbot singleton: {e}", exc_info=True)
-            raise RuntimeError(f"Failed to initialize HR chatbot: {str(e)}") from e
-    return _hr_chatbot_singleton
-
-
-def create_hr_chatbot_with_custom_memory(
-    memory_strategy: str,
-    trim_keep_messages: Optional[int] = None,
-    summarize_threshold: Optional[int] = None,
-    summarize_model: Optional[str] = None,
-    model_name: Optional[str] = None,
-    temperature: Optional[float] = None,
-    max_tokens: Optional[int] = None,
-    verbose: bool = False,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None
-) -> HRChatbot:
-    """
-    Create an HR chatbot instance with custom memory configuration.
-    This is a convenience function for creating chatbots with specific memory strategies.
-    
-    Args:
-        memory_strategy: Memory strategy - "none", "trim", "summarize", "trim_and_summarize"
-        trim_keep_messages: Number of messages to keep when trimming (optional, uses default if None)
-        summarize_threshold: Message count threshold for summarization (optional, uses default if None)
-        model_name: Name of the LLM model to use (optional)
-        temperature: Temperature for the model (optional)
-        max_tokens: Maximum tokens for responses (optional)
-        verbose: Whether to enable verbose logging (default: False)
-        api_key: API key for the model provider (optional)
-        base_url: Base URL for the model API (optional)
-        
-    Returns:
-        HRChatbot instance with custom memory configuration
-        
-    Raises:
-        ValueError: If memory_strategy is invalid
-    """
     try:
-        MemoryStrategy(memory_strategy)  # Validate strategy
-    except ValueError:
-        raise ValueError(
-            f"Invalid memory_strategy: {memory_strategy}. "
-            "Must be one of: none, trim, summarize, trim_and_summarize"
+        # Get agent pool for HR chatbot type
+        # The pool will create instances using the factory if needed
+        agent_pool = get_agent_pool(
+            chatbot_type="hr",
+            agent_factory=_get_default_hr_chatbot
         )
-    
-    return create_hr_chatbot(
-        model_name=model_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        verbose=verbose,
-        api_key=api_key,
-        base_url=base_url,
-        initialize_vector_store=False,
-        memory_strategy=memory_strategy,
-        trim_keep_messages=trim_keep_messages,
-        summarize_threshold=summarize_threshold,
-        summarize_model=summarize_model
-    )
+        
+        # Get agent from pool
+        chatbot = agent_pool.get_agent()
+        return chatbot
+    except Exception as e:
+        logger.error(f"Failed to get HR chatbot from pool: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to get HR chatbot from pool: {str(e)}") from e
 
 
 # Re-export for convenience
 __all__ = [
     "HRChatbot",
-    "initialize_hr_chatbot_vector_store",
-    "create_hr_chatbot_agent",
-    "create_hr_chatbot",
-    "get_default_hr_chatbot",
     "get_hr_chatbot",
-    "create_hr_chatbot_with_custom_memory",
-    "chat_with_agent",
-    "get_available_models",
-    "get_llm",
+    "_initialize_hr_chatbot_vector_store",  # Private, but needed for main.py
 ]

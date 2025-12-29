@@ -16,12 +16,7 @@ from pydantic import BaseModel, Field
 
 from app.core.logger import logger
 from app.core.config import settings
-from app.chatbot.hr_chatbot import (
-    get_hr_chatbot,
-    create_hr_chatbot_with_custom_memory,
-    initialize_hr_chatbot_vector_store
-)
-from app.llm_manager import get_available_models
+from app.chatbot.hr_chatbot import get_hr_chatbot
 import uuid
 
 router = APIRouter()
@@ -47,19 +42,6 @@ class ChatResponse(BaseModel):
     session_id: str = Field(..., description="Session ID for this conversation")
     model_used: str = Field(..., description="Model that was used for the response")
     message_count: Optional[int] = Field(None, description="Number of messages in this session")
-
-
-class ChatRequestWithConfig(ChatRequest):
-    """Extended request model with agent configuration"""
-    model_name: Optional[str] = Field(None, description="LLM model to use (optional)")
-    temperature: Optional[float] = Field(None, description="Temperature for the model (optional)", ge=0.0, le=2.0)
-    max_tokens: Optional[int] = Field(None, description="Maximum tokens for response (optional)", gt=0)
-    api_key: Optional[str] = Field(None, description="API key for the model provider (optional)")
-    base_url: Optional[str] = Field(None, description="Base URL for the model API (optional, mainly for Ollama)")
-    verbose: bool = Field(False, description="Enable verbose logging")
-    memory_strategy: Optional[str] = Field(None, description="Memory strategy: 'none', 'trim', 'summarize', 'trim_and_summarize'")
-    trim_keep_messages: Optional[int] = Field(None, description="Number of messages to keep when trimming")
-    summarize_threshold: Optional[int] = Field(None, description="Message count threshold for summarization")
 
 
 @router.post("/", response_model=ChatResponse, tags=["chat"])
@@ -120,95 +102,6 @@ async def chat_with_hr_chatbot(
         )
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing chat request: {str(e)}"
-        )
-
-
-@router.post("/custom", response_model=ChatResponse, tags=["chat"])
-async def chat_with_custom_agent(
-    request: ChatRequestWithConfig
-):
-    """
-    Chat with the HR chatbot using a custom agent configuration.
-    
-    This endpoint allows you to specify model parameters and memory strategy for a chat.
-    A new chatbot instance will be created with the specified configuration.
-    
-    Args:
-        request: Chat request with custom agent configuration
-        
-    Returns:
-        ChatResponse with the chatbot's response
-        
-    Raises:
-        HTTPException: If the chatbot fails to respond or configuration is invalid
-    """
-    try:
-        # Get or generate session_id (thread_id for checkpointer)
-        thread_id = request.session_id or str(uuid.uuid4())
-        
-        # Create custom HR chatbot instance
-        # If memory parameters are provided, use custom memory configuration
-        if request.memory_strategy:
-            try:
-                chatbot = create_hr_chatbot_with_custom_memory(
-                    memory_strategy=request.memory_strategy,
-                    trim_keep_messages=request.trim_keep_messages,
-                    summarize_threshold=request.summarize_threshold,
-                    model_name=request.model_name,
-                    temperature=request.temperature,
-                    max_tokens=request.max_tokens,
-                    verbose=request.verbose,
-                    api_key=request.api_key,
-                    base_url=request.base_url
-                )
-            except ValueError as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail=str(e)
-                )
-        else:
-            # Use default chatbot with custom model parameters if provided
-            from app.chatbot.hr_chatbot import create_hr_chatbot
-            chatbot = create_hr_chatbot(
-                model_name=request.model_name,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                verbose=request.verbose,
-                api_key=request.api_key,
-                base_url=request.base_url,
-                initialize_vector_store=False
-            )
-        
-        # Chat with the chatbot
-        response_text = chatbot.chat(
-            query=request.message,
-            thread_id=thread_id,
-            user_id=request.user_id
-        )
-        
-        # Get model name
-        model_used = request.model_name or settings.CHAT_MODEL
-        
-        return ChatResponse(
-            response=response_text,
-            session_id=thread_id,
-            model_used=model_used,
-            message_count=None  # Message count is managed by checkpointer
-        )
-        
-    except HTTPException:
-        raise
-    except ValueError as e:
-        logger.error(f"Invalid configuration in chat request: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid configuration: {str(e)}"
-        )
-    except Exception as e:
-        logger.error(f"Error in custom chat endpoint: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Error processing chat request: {str(e)}"
@@ -322,25 +215,6 @@ async def get_session_stats():
         raise HTTPException(
             status_code=500,
             detail=f"Error getting session stats: {str(e)}"
-        )
-
-
-@router.get("/models", response_model=List[str], tags=["chat"])
-async def get_available_models():
-    """
-    Get list of available LLM models.
-    
-    Returns:
-        List of available model names
-    """
-    try:
-        models = get_available_models()
-        return models
-    except Exception as e:
-        logger.error(f"Error getting available models: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error retrieving available models: {str(e)}"
         )
 
 

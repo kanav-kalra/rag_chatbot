@@ -2,19 +2,13 @@
 Chatbot Module - Generic chatbot and HR-specific chatbot implementations
 """
 # Generic chatbot exports
-from app.chatbot.chatbot import (
-    ChatbotAgent,
-    create_chatbot_agent,
-    chat_with_agent,
-)
+from app.chatbot.chatbot import ChatbotAgent
 
 # HR chatbot exports
-from app.chatbot.hr_chatbot import (
-    HRChatbot,
-    create_hr_chatbot_agent,
-    create_hr_chatbot,
-    initialize_hr_chatbot_vector_store,
-)
+from app.chatbot.hr_chatbot import HRChatbot, get_hr_chatbot
+
+# Agent pool exports
+from app.chatbot.agent_pool import AgentPool, get_agent_pool
 
 # Session management exports
 from app.chatbot.session_manager import (
@@ -27,7 +21,6 @@ from app.llm_manager import (
     LLMManager,
     get_llm_manager,
     get_llm,
-    get_available_models,
 )
 
 # Prompts exports
@@ -39,20 +32,15 @@ from app.chatbot.prompts import (
     get_rag_prompt_template,
 )
 
-# For backward compatibility
-create_agent = create_hr_chatbot_agent
-
 __all__ = [
     # Generic chatbot classes
     "ChatbotAgent",
-    "create_chatbot_agent",
-    "chat_with_agent",
     # HR chatbot classes
     "HRChatbot",
-    "create_hr_chatbot_agent",
-    "create_hr_chatbot",
-    "initialize_hr_chatbot_vector_store",
-    "create_agent",  # Backward compatibility
+    "get_hr_chatbot",
+    # Agent pool
+    "AgentPool",
+    "get_agent_pool",
     # Session management
     "ChatbotSession",
     "ChatbotSessionManager",
@@ -60,7 +48,6 @@ __all__ = [
     "LLMManager",
     "get_llm_manager",
     "get_llm",
-    "get_available_models",
     # Prompts
     "HR_CHATBOT_SYSTEM_PROMPT",
     "AGENT_INSTRUCTIONS",
