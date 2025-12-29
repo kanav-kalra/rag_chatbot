@@ -20,7 +20,7 @@ from app.core.config import settings
 class ChatbotSession:
     """
     Represents a single user's chat session.
-    Manages chat history and session metadata.
+    Manages session metadata (chat history is managed by checkpointer).
     Uses shared agent from session manager.
     """
     
@@ -29,7 +29,7 @@ class ChatbotSession:
         Initialize a chatbot session.
         
         Args:
-            session_id: Unique session identifier
+            session_id: Unique session identifier (used as thread_id for checkpointer)
             agent_getter: Callable that returns the shared agent instance
             user_id: Optional user identifier
         """
@@ -37,10 +37,8 @@ class ChatbotSession:
         self._agent_getter = agent_getter
         self._custom_agent = None  # For custom agent configurations
         self.user_id = user_id
-        self.chat_history: list = []
         self.created_at = datetime.now()
         self.last_activity = datetime.now()
-        self.message_count = 0
     
     @property
     def agent(self):
@@ -54,45 +52,10 @@ class ChatbotSession:
         """Set a custom agent for this session."""
         self._custom_agent = value
         logger.debug(f"Set custom agent for session {self.session_id}")
-        
-    def add_message(self, role: str, content: str) -> None:
-        """
-        Add a message to chat history.
-        
-        Args:
-            role: Message role ('user' or 'assistant')
-            content: Message content
-        """
-        message = {
-            "role": role,
-            "content": content,
-            "timestamp": datetime.now().isoformat()
-        }
-        self.chat_history.append(message)
-        self.last_activity = datetime.now()
-        self.message_count += 1
-        
-    def get_chat_history(self, format_for_agent: bool = False) -> list:
-        """
-        Get chat history.
-        
-        Args:
-            format_for_agent: If True, returns format expected by agent
-        
-        Returns:
-            List of messages
-        """
-        if format_for_agent:
-            return [
-                {"role": msg["role"], "content": msg["content"]}
-                for msg in self.chat_history
-            ]
-        return self.chat_history.copy()
     
-    def clear_history(self) -> None:
-        """Clear chat history for this session."""
-        self.chat_history = []
-        logger.info(f"Cleared chat history for session {self.session_id}")
+    def update_activity(self) -> None:
+        """Update last activity timestamp."""
+        self.last_activity = datetime.now()
     
     def is_expired(self, timeout: timedelta) -> bool:
         """
@@ -111,10 +74,9 @@ class ChatbotSession:
         return {
             "session_id": self.session_id,
             "user_id": self.user_id,
-            "message_count": self.message_count,
             "created_at": self.created_at.isoformat(),
             "last_activity": self.last_activity.isoformat(),
-            "chat_history_length": len(self.chat_history)
+            "note": "Chat history is managed by checkpointer (thread_id = session_id)"
         }
 
 
@@ -356,14 +318,13 @@ class ChatbotSessionManager:
     def get_session_stats(self) -> dict:
         """Get statistics about sessions."""
         with self.lock:
-            total_messages = sum(s.message_count for s in self.sessions.values())
             custom_agent_sessions = sum(1 for s in self.sessions.values() if s._custom_agent is not None)
             return {
                 "total_sessions": len(self.sessions),
-                "total_messages": total_messages,
                 "session_timeout_hours": self.session_timeout.total_seconds() / 3600,
                 "max_sessions": self.max_sessions,
                 "agent_pool_size": self.agent_pool_size,
-                "sessions_with_custom_agents": custom_agent_sessions
+                "sessions_with_custom_agents": custom_agent_sessions,
+                "note": "Chat history is managed by checkpointer, not session manager"
             }
 

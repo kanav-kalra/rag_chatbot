@@ -1,5 +1,6 @@
 """
-Chatbot Page - Interactive HR Chatbot Interface with Session Management
+Chatbot Page - Interactive HR Chatbot Interface
+Chat history is managed by checkpointer (Redis) via the API
 """
 import sys
 from pathlib import Path
@@ -21,7 +22,8 @@ st.set_page_config(
 
 st.title("💬 HR Chatbot")
 
-# Initialize session state for chat messages and session ID
+# Initialize session state for UI display (chat history is managed by checkpointer via API)
+# Note: st.session_state.messages is only for UI display, actual history is in Redis
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -136,7 +138,7 @@ with st.sidebar:
     st.header("💡 Tips")
     st.write("• Ask questions about HR policies")
     st.write("• Use the Reset button to clear chat history")
-    st.write("• Chat history is maintained during your session")
+    st.write("• Chat history is managed by checkpointer (persisted in Redis)")
     st.write("• Press Enter or click Submit to send your message")
     
     st.divider()

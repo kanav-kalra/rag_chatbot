@@ -18,6 +18,9 @@ from langchain.agents import create_agent
 from app.core.config import settings
 from app.core.logger import logger
 from app.llm_manager import get_llm_manager, get_llm, get_available_models
+from app.core.checkpointer_manager import get_checkpointer
+from app.core.memory_config import MemoryConfig, get_memory_config
+from app.core.memory_manager import MemoryManager
 
 
 class ChatbotAgent:
@@ -35,7 +38,9 @@ class ChatbotAgent:
         system_prompt: Optional[str] = None,
         verbose: bool = False,
         api_key: Optional[str] = None,
-        base_url: Optional[str] = None
+        base_url: Optional[str] = None,
+        memory_config: Optional[MemoryConfig] = None,
+        chatbot_type: str = "default"
     ):
         """
         Initialize chatbot agent.
@@ -49,6 +54,8 @@ class ChatbotAgent:
             verbose: Whether to enable verbose logging (default: False)
             api_key: API key for the model provider (optional)
             base_url: Base URL for the model API (optional, mainly for Ollama)
+            memory_config: Memory configuration for managing chat history (optional)
+            chatbot_type: Type of chatbot for default memory config (default: "default")
         """
         self.model_name = model_name or settings.CHAT_MODEL
         self.temperature = temperature
@@ -59,12 +66,15 @@ class ChatbotAgent:
         self.api_key = api_key
         self.base_url = base_url
         
+        # Memory configuration
+        self.memory_config = memory_config or get_memory_config(chatbot_type)
+        
         # Create the agent
         self._agent = None
         self._initialize_agent()
     
     def _initialize_agent(self) -> None:
-        """Initialize the LangChain agent."""
+        """Initialize the LangChain agent with checkpointer and memory management."""
         try:
             # Get LLM using LLM manager
             llm = get_llm(
@@ -75,16 +85,24 @@ class ChatbotAgent:
                 base_url=self.base_url
             )
             
+            # Get checkpointer for short-term memory
+            checkpointer = get_checkpointer()
+            
+            # Create memory manager for processing messages
+            self._memory_manager = MemoryManager(self.memory_config) if self.memory_config.strategy.value != "none" else None
+            
             # Create agent using create_agent (LangChain 1.0+ API)
             self._agent = create_agent(
                 model=llm,
                 tools=self.tools,
                 system_prompt=self.system_prompt,
+                checkpointer=checkpointer,
                 debug=self.verbose
             )
             
             logger.info(
-                f"Initialized ChatbotAgent with model: {self.model_name}"
+                f"Initialized ChatbotAgent with model: {self.model_name}, "
+                f"memory_strategy: {self.memory_config.strategy.value}"
             )
             
         except Exception as e:
@@ -102,33 +120,102 @@ class ChatbotAgent:
     def chat(
         self,
         query: str,
-        chat_history: Optional[List[Dict[str, str]]] = None
+        thread_id: str,
+        user_id: Optional[str] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None  # Deprecated: kept for backward compatibility
     ) -> str:
         """
-        Chat with the chatbot agent.
+        Chat with the chatbot agent using checkpointer for memory management.
         
         Args:
             query: User's question
-            chat_history: Optional chat history (list of dicts with 'role' and 'content')
+            thread_id: Thread/session identifier for maintaining conversation context
+            user_id: Optional user identifier
+            chat_history: Deprecated - kept for backward compatibility but ignored
+                         (history is managed by checkpointer)
         
         Returns:
             Agent's response as a string
         """
         try:
             # Prepare input messages
-            messages = [{"role": "user", "content": query}]
-            if chat_history:
-                messages = chat_history + messages
+            from langchain_core.messages import HumanMessage
+            from app.core.checkpointer_manager import get_checkpointer_manager, get_checkpointer
             
+            messages = [HumanMessage(content=query)]
             inputs = {"messages": messages}
             
-            # Invoke agent
-            result = self.agent.invoke(inputs)
+            # Create config with thread_id for checkpointer
+            config = get_checkpointer_manager().get_config(thread_id, user_id)
+            checkpointer = get_checkpointer()
+            
+            # Process messages BEFORE invocation to prevent context length errors
+            # This applies memory management and token-based trimming
+            try:
+                # Get current state from checkpointer
+                checkpoint = checkpointer.get(config)
+                if checkpoint and "channel_values" in checkpoint:
+                    state = checkpoint["channel_values"]
+                    if "messages" in state:
+                        existing_messages = state["messages"]
+                        
+                        # Determine max tokens based on model (default: 8192 for gpt-3.5-turbo)
+                        # Reserve space for response (max_tokens) and functions
+                        model_max_tokens = 8192  # Default for gpt-3.5-turbo
+                        if "gpt-4" in self.model_name.lower():
+                            model_max_tokens = 8192
+                        elif "gpt-3.5" in self.model_name.lower():
+                            model_max_tokens = 16385  # gpt-3.5-turbo-16k
+                        
+                        # Reserve tokens for response and functions (estimate 500 tokens)
+                        available_tokens = model_max_tokens - (self.max_tokens or 2000) - 500
+                        
+                        # Process messages with memory manager (always process if memory manager exists)
+                        if self._memory_manager:
+                            processed_messages = self._memory_manager.process_messages(
+                                existing_messages, thread_id, max_tokens=available_tokens
+                            )
+                        else:
+                            # Even without memory manager, trim if over token limit
+                            from app.core.memory_manager import MemoryManager
+                            temp_manager = MemoryManager(self.memory_config)
+                            processed_messages = temp_manager.process_messages(
+                                existing_messages, thread_id, max_tokens=available_tokens
+                            )
+                        
+                        # If messages were processed, we need to update the checkpoint
+                        # However, LangGraph's checkpointer API doesn't have a simple put method
+                        # So we'll pass the processed messages directly in the input
+                        # This is a workaround - the agent will still load from checkpoint,
+                        # but we'll override with processed messages
+                        if processed_messages != existing_messages:
+                            # Update inputs to include processed messages (excluding the new user message)
+                            # The agent will merge these with the checkpoint
+                            inputs["messages"] = processed_messages + messages
+                            
+                            logger.info(
+                                f"Memory management processed {len(existing_messages)} -> "
+                                f"{len(processed_messages)} messages for thread {thread_id} "
+                                f"(max_tokens: {available_tokens}). Using processed messages in input."
+                            )
+                        else:
+                            # Even if not processed, include existing messages to maintain context
+                            inputs["messages"] = existing_messages + messages
+            except Exception as e:
+                logger.warning(f"Memory management processing failed: {e}", exc_info=True)
+                # Continue with unprocessed messages if memory management fails
+            
+            # Invoke agent with checkpointer config
+            # The checkpointer will now have processed messages if memory management is enabled
+            result = self.agent.invoke(inputs, config=config)
             
             # Extract response from the result
             response = self._extract_response(result)
             
-            logger.debug(f"Chat response generated (length: {len(response)} chars)")
+            logger.debug(
+                f"Chat response generated (length: {len(response)} chars, "
+                f"thread_id: {thread_id})"
+            )
             return response
             
         except Exception as e:
@@ -178,6 +265,17 @@ class ChatbotAgent:
         self.system_prompt = system_prompt
         self._initialize_agent()
         logger.info("Updated agent system prompt")
+    
+    def update_memory_config(self, memory_config: MemoryConfig) -> None:
+        """
+        Update memory configuration (requires reinitialization).
+        
+        Args:
+            memory_config: New memory configuration
+        """
+        self.memory_config = memory_config
+        self._initialize_agent()
+        logger.info(f"Updated memory config: {memory_config.strategy.value}")
 
 
 # Factory functions for backward compatibility
