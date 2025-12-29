@@ -255,7 +255,7 @@ def get_default_hr_chatbot() -> HRChatbot:
     """
     Get or create a default HR chatbot instance with configuration from settings.
     This is a convenience function that creates an HR chatbot with default settings.
-    For API use, this creates a singleton instance.
+    Note: This creates a new instance each time. For singleton behavior, use get_hr_chatbot().
     
     Returns:
         HRChatbot instance configured with settings
@@ -266,6 +266,36 @@ def get_default_hr_chatbot() -> HRChatbot:
         initialize_vector_store=False,  # Vector store should be initialized on startup
         verbose=False
     )
+
+
+# Global singleton instance
+_hr_chatbot_singleton: Optional[HRChatbot] = None
+
+
+def get_hr_chatbot() -> HRChatbot:
+    """
+    Get or create the HR chatbot singleton instance.
+    Uses default configuration from settings.
+    
+    This is the recommended way to get the HR chatbot for API use,
+    as it ensures only one instance is created and reused across requests.
+    The singleton is thread-safe for concurrent API requests.
+    
+    Returns:
+        HRChatbot instance (singleton)
+        
+    Raises:
+        RuntimeError: If chatbot initialization fails
+    """
+    global _hr_chatbot_singleton
+    if _hr_chatbot_singleton is None:
+        try:
+            _hr_chatbot_singleton = get_default_hr_chatbot()
+            logger.info("HR chatbot singleton initialized with default configuration from settings")
+        except Exception as e:
+            logger.error(f"Failed to create HR chatbot singleton: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to initialize HR chatbot: {str(e)}") from e
+    return _hr_chatbot_singleton
 
 
 def create_hr_chatbot_with_custom_memory(
@@ -331,6 +361,7 @@ __all__ = [
     "create_hr_chatbot_agent",
     "create_hr_chatbot",
     "get_default_hr_chatbot",
+    "get_hr_chatbot",
     "create_hr_chatbot_with_custom_memory",
     "chat_with_agent",
     "get_available_models",

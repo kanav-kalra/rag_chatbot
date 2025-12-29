@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from app.core.logger import logger
 from app.core.config import settings
 from app.chatbot.hr_chatbot import (
-    get_default_hr_chatbot,
+    get_hr_chatbot,
     create_hr_chatbot_with_custom_memory,
     initialize_hr_chatbot_vector_store
 )
@@ -25,31 +25,6 @@ from app.llm_manager import get_available_models
 import uuid
 
 router = APIRouter()
-
-# Global HR chatbot instance (singleton)
-_hr_chatbot: Optional[Any] = None
-
-
-def get_hr_chatbot():
-    """
-    Get or create the HR chatbot instance (singleton).
-    Uses default configuration from settings.
-    
-    Returns:
-        HRChatbot instance
-    """
-    global _hr_chatbot
-    if _hr_chatbot is None:
-        try:
-            _hr_chatbot = get_default_hr_chatbot()
-            logger.info("HR chatbot initialized with default configuration from settings")
-        except Exception as e:
-            logger.error(f"Failed to create HR chatbot: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to initialize HR chatbot: {str(e)}"
-            )
-    return _hr_chatbot
 
 
 # Pydantic models for request/response
@@ -111,7 +86,7 @@ async def chat_with_hr_chatbot(
         # Get or generate session_id (thread_id for checkpointer)
         thread_id = request.session_id or str(uuid.uuid4())
         
-        # Get HR chatbot instance
+        # Get HR chatbot instance (singleton from hr_chatbot module)
         chatbot = get_hr_chatbot()
         
         # Chat with the chatbot (checkpointer manages history automatically)
@@ -136,6 +111,13 @@ async def chat_with_hr_chatbot(
             message_count=None  # Message count is managed by checkpointer
         )
         
+    except RuntimeError as e:
+        # Handle initialization errors from get_hr_chatbot()
+        logger.error(f"HR chatbot initialization error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initialize HR chatbot: {str(e)}"
+        )
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}", exc_info=True)
         raise HTTPException(
@@ -374,13 +356,21 @@ async def chat_health_check():
         from app.core.checkpointer_manager import get_checkpointer_manager
         
         manager = get_checkpointer_manager()
-        chatbot = get_hr_chatbot()
+        chatbot = get_hr_chatbot()  # Uses singleton from hr_chatbot module
         
         return {
             "status": "healthy",
             "service": "hr_chatbot",
             "checkpointer_type": "redis" if manager.is_redis else "memory",
             "model": chatbot.model_name
+        }
+    except RuntimeError as e:
+        # Handle initialization errors
+        logger.error(f"Chatbot health check failed - initialization error: {e}", exc_info=True)
+        return {
+            "status": "unhealthy",
+            "service": "hr_chatbot",
+            "error": f"Initialization failed: {str(e)}"
         }
     except Exception as e:
         logger.error(f"Chatbot health check failed: {e}", exc_info=True)
