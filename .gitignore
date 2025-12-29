@@ -189,3 +189,5 @@ secrets.json
 .langchain/
 .langsmith/
 
+#chroma db
+chroma_db/

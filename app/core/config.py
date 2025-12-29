@@ -84,6 +84,10 @@ class Settings:
     MEMORY_TRIM_KEEP_MESSAGES: int = int(os.getenv("MEMORY_TRIM_KEEP_MESSAGES", "10"))  # Keep last N messages
     MEMORY_SUMMARIZE_THRESHOLD: int = int(os.getenv("MEMORY_SUMMARIZE_THRESHOLD", "20"))  # Summarize when messages exceed this
     MEMORY_SUMMARIZE_MODEL: str = os.getenv("MEMORY_SUMMARIZE_MODEL", "gpt-3.5-turbo-16k")  # Model for summarization (should have high context window)
+    
+    # HR Chatbot ChromaDB Configuration
+    HR_CHROMA_PERSIST_DIR: str = os.getenv("HR_CHROMA_PERSIST_DIR", "./chroma_db/hr_chatbot")
+    HR_CHROMA_COLLECTION_NAME: str = os.getenv("HR_CHROMA_COLLECTION_NAME", "hr_chatbot")
 
 
 # Create settings instance

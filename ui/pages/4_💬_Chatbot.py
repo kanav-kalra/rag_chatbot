@@ -76,14 +76,18 @@ if user_query:
     # Show loading indicator and get response
     with st.spinner("Thinking..."):
         try:
-            # Prepare request payload
+            # Prepare request payload (only message, session_id goes in headers)
             payload = {
-                "message": user_query,
-                "session_id": st.session_state.session_id
+                "message": user_query
             }
             
-            # Call API
-            response = requests.post(API_URL, json=payload, timeout=30)
+            # Prepare headers with session_id if available
+            headers = {}
+            if st.session_state.session_id:
+                headers["X-Session-ID"] = st.session_state.session_id
+            
+            # Call API with session_id in headers
+            response = requests.post(API_URL, json=payload, headers=headers, timeout=30)
             response.raise_for_status()
             
             # Get response from API
