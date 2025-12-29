@@ -14,12 +14,10 @@ if str(project_root) not in sys.path:
 from langchain_core.documents import Document
 from langchain_core.tools import tool
 
-from app.core.logger import logger
-from app.tools.vector_store_manager import get_vector_store, is_vector_store_available
-# Call memory_builder to build and initialize the in-memory vector store
-from app.document_loader.memory_builder import build_memory_from_pdfs
-# Set up global vector store for tools
-from app.tools.vector_store_manager import set_vector_store
+from app.core.logging import logger
+from vectorstore.client import get_vector_store, is_vector_store_available, set_vector_store
+# Call embedder to build and initialize the in-memory vector store
+from ingestion.embedder import build_memory_from_pdfs
 
 @tool(response_format="content_and_artifact")
 def retrieve_documents(
@@ -189,12 +187,12 @@ if __name__ == "__main__":
     vector_store = build_memory_from_pdfs()
     set_vector_store(vector_store)
     # Example usage
-    from app.tools.vector_store_manager import is_vector_store_available
+    from vectorstore.client import is_vector_store_available
     
     if not is_vector_store_available():
         logger.warning("Vector store is not available. Please initialize it first.")
-        logger.info("Example: from app.tools.vector_store_manager import set_vector_store")
-        logger.info("         from app.document_loader.memory_builder import build_memory_from_pdfs")
+        logger.info("Example: from vectorstore.client import set_vector_store")
+        logger.info("         from ingestion.embedder import build_memory_from_pdfs")
         logger.info("         vs = build_memory_from_pdfs()")
         logger.info("         set_vector_store(vs)")
     else:

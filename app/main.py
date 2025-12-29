@@ -24,7 +24,7 @@ if str(project_root) not in sys.path:
 # Local application imports
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.core.logger import logger
+from app.core.logging import logger
 from app.core.rate_limiter import RateLimitMiddleware
 
 @asynccontextmanager
@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
     
     # Initialize checkpointer manager (Redis connection)
     try:
-        from app.core.checkpointer_manager import get_checkpointer_manager
+        from app.infra.checkpointing.checkpoint_manager import get_checkpointer_manager
         manager = get_checkpointer_manager()
         logger.info(f"Checkpointer initialized: {'Redis' if manager.is_redis else 'In-Memory'}")
     except Exception as e:
@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     
     # Initialize HR chatbot vector store (if HR chatbot is being used)
     try:
-        from app.chatbot.hr_chatbot import _initialize_hr_chatbot_vector_store
+        from app.services.chatbot.hr_chatbot import _initialize_hr_chatbot_vector_store
         _initialize_hr_chatbot_vector_store()
     except ImportError:
         logger.debug("HR chatbot module not available, skipping vector store initialization.")
@@ -121,7 +121,7 @@ async def health_check():
 def run_streamlit():
     """Run Streamlit app in a subprocess"""
     streamlit_port = int(os.getenv("STREAMLIT_PORT", "8501"))
-    streamlit_file = Path(__file__).parent / "streamlit_app.py"
+    streamlit_file = Path(__file__).parent.parent / "ui" / "streamlit_app.py"
     subprocess.run([
         "streamlit", "run", str(streamlit_file),
         "--server.port", str(streamlit_port),

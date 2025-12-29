@@ -13,7 +13,7 @@ if str(project_root) not in sys.path:
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 
-from app.core.logger import logger
+from app.core.logging import logger
 
 
 def load_pdf_documents(

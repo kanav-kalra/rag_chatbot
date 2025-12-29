@@ -14,15 +14,15 @@ if str(project_root) not in sys.path:
 from langchain_core.tools import BaseTool
 
 from app.core.config import settings
-from app.core.logger import logger
-from app.chatbot.chatbot import ChatbotAgent
-from app.llm_manager import get_llm
-from app.chatbot.prompts import HR_CHATBOT_SYSTEM_PROMPT, AGENT_INSTRUCTIONS
-from app.tools.retrieval_tool import retrieve_documents
-from app.document_loader.memory_builder import build_memory_from_pdfs
-from app.tools.vector_store_manager import set_vector_store
+from app.core.logging import logger
+from app.services.chatbot.chatbot_service import ChatbotAgent
+from app.infra.llm.llm_manager import get_llm
+from app.services.chatbot.prompts import HR_CHATBOT_SYSTEM_PROMPT, AGENT_INSTRUCTIONS
+from app.services.retrieval.retrieval_service import retrieve_documents
+from ingestion.embedder import build_memory_from_pdfs
+from vectorstore.client import set_vector_store
 from app.core.memory_config import get_memory_config
-from app.chatbot.agent_pool import get_agent_pool
+from app.services.chatbot.agent_pool import get_agent_pool
 
 
 class HRChatbot(ChatbotAgent):

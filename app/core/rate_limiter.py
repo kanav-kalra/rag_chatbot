@@ -17,7 +17,7 @@ from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
-from app.core.logger import logger
+from app.core.logging import logger
 
 
 class RateLimiter:

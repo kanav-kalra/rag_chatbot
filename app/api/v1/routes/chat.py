@@ -14,13 +14,13 @@ if str(project_root) not in sys.path:
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 
-from app.core.logger import logger
+from app.core.logging import logger
 from app.core.config import settings
-from app.chatbot.hr_chatbot import get_hr_chatbot
-from app.chatbot.session_manager import ChatbotSession, ChatbotSessionManager
+from app.services.chatbot.hr_chatbot import get_hr_chatbot
+from app.services.session.session_manager import ChatbotSession, ChatbotSessionManager
 from app.core.session_dependencies import (
-    get_or_create_session,
-    get_session,
+    get_session_from_headers,
+    get_session_from_path,
     get_session_manager_dependency
 )
 
@@ -35,10 +35,8 @@ class ChatMessage(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    """Request model for chat endpoint"""
+    """Request model for chat endpoint - only contains the message"""
     message: str = Field(..., description="User's message/question", min_length=1)
-    session_id: Optional[str] = Field(None, description="Session ID for maintaining conversation context")
-    user_id: Optional[str] = Field(None, description="Optional user identifier")
 
 
 class ChatResponse(BaseModel):
@@ -49,34 +47,30 @@ class ChatResponse(BaseModel):
     message_count: Optional[int] = Field(None, description="Number of messages in this session")
 
 
-def get_session_from_request(
-    request: ChatRequest = Depends()
-) -> ChatbotSession:
-    """
-    Dependency that extracts session info from request and gets/creates session.
-    """
-    return get_or_create_session(
-        session_id=request.session_id,
-        user_id=request.user_id
-    )
-
-
 @router.post("/", response_model=ChatResponse, tags=["chat"])
 async def chat_with_hr_chatbot(
     request: ChatRequest,
-    session: ChatbotSession = Depends(get_session_from_request)
+    session: ChatbotSession = Depends(get_session_from_headers)
 ):
     """
     Chat with the HR chatbot using Redis checkpointer for memory management.
     
     Send a message to the HR chatbot and receive a response based on HR policies and documents.
-    Session management is handled automatically via dependency injection. If a session_id is 
-    provided, the conversation history is maintained via checkpointer. If not, a new session_id 
-    is generated.
+    Session management is handled automatically via dependency injection from headers/cookies.
+    If X-Session-ID header or session_id cookie is provided, the conversation history is maintained.
+    If not, a new session_id is generated.
+    
+    Headers (preferred):
+        - X-Session-ID: Session identifier
+        - X-User-ID: User identifier
+    
+    Cookies (fallback):
+        - session_id: Session identifier
+        - user_id: User identifier
     
     Args:
-        request: Chat request containing the message and optional session_id
-        session: ChatbotSession automatically injected via dependency
+        request: Chat request containing only the message
+        session: ChatbotSession automatically injected via dependency from headers/cookies
         
     Returns:
         ChatResponse with the chatbot's response and session_id
@@ -129,6 +123,7 @@ async def chat_with_hr_chatbot(
 @router.delete("/sessions/{session_id}", tags=["chat"])
 async def delete_session(
     session_id: str,
+    session: ChatbotSession = Depends(get_session_from_path),
     session_manager: ChatbotSessionManager = Depends(get_session_manager_dependency)
 ):
     """
@@ -138,11 +133,15 @@ async def delete_session(
     history in the checkpointer may persist until Redis TTL expires.
     
     Args:
-        session_id: Session identifier
+        session_id: Session identifier from path
+        session: ChatbotSession automatically injected via dependency (validates session exists)
         session_manager: ChatbotSessionManager automatically injected via dependency
         
     Returns:
         Success message
+        
+    Raises:
+        HTTPException: 404 if session not found, 500 on error
     """
     try:
         deleted = session_manager.delete_session(session_id)
@@ -170,7 +169,8 @@ async def delete_session(
 
 @router.get("/sessions/{session_id}", tags=["chat"])
 async def get_session_info(
-    session: ChatbotSession = Depends(get_session)
+    session_id: str,
+    session: ChatbotSession = Depends(get_session_from_path)
 ):
     """
     Get information about a session.
@@ -178,14 +178,18 @@ async def get_session_info(
     Returns session metadata from the session manager and checkpointer status.
     
     Args:
+        session_id: Session identifier from path
         session: ChatbotSession automatically injected via dependency (404 if not found)
         
     Returns:
         Session information including metadata and checkpointer status
+        
+    Raises:
+        HTTPException: 404 if session not found, 500 on error
     """
     try:
         # Check checkpointer status
-        from app.core.checkpointer_manager import get_checkpointer_manager
+        from app.infra.checkpointing.checkpoint_manager import get_checkpointer_manager
         
         checkpointer_manager = get_checkpointer_manager()
         checkpointer = checkpointer_manager.checkpointer
@@ -229,8 +233,8 @@ async def get_session_stats(
     try:
         session_stats = session_manager.get_session_stats()
         
-        from app.core.checkpointer_manager import get_checkpointer_manager
-        from app.chatbot.agent_pool import get_all_pool_stats
+        from app.infra.checkpointing.checkpoint_manager import get_checkpointer_manager
+        from app.services.chatbot.agent_pool import get_all_pool_stats
         
         checkpointer_manager = get_checkpointer_manager()
         agent_pool_stats = get_all_pool_stats()
@@ -260,7 +264,7 @@ async def chat_health_check():
         Status of the chatbot service
     """
     try:
-        from app.core.checkpointer_manager import get_checkpointer_manager
+        from app.infra.checkpointing.checkpoint_manager import get_checkpointer_manager
         
         manager = get_checkpointer_manager()
         chatbot = get_hr_chatbot()  # Uses singleton from hr_chatbot module

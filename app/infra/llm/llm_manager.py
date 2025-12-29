@@ -30,7 +30,7 @@ except ImportError:
     ChatOllama = None
 
 from app.core.config import settings
-from app.core.logger import logger
+from app.core.logging import logger
 
 
 # Model configurations

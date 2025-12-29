@@ -17,11 +17,11 @@ from langchain_core.tools import BaseTool
 from langchain.agents import create_agent
 
 from app.core.config import settings
-from app.core.logger import logger
-from app.llm_manager import get_llm_manager, get_llm
-from app.core.checkpointer_manager import get_checkpointer
+from app.core.logging import logger
+from app.infra.llm.llm_manager import get_llm_manager, get_llm
+from app.infra.checkpointing.checkpoint_manager import get_checkpointer
 from app.core.memory_config import MemoryConfig, get_memory_config
-from app.core.memory_manager import MemoryManager
+from app.services.memory.memory_manager import MemoryManager
 
 
 class ChatbotAgent(ABC):
@@ -154,7 +154,7 @@ class ChatbotAgent(ABC):
         try:
             # Prepare input messages
             from langchain_core.messages import HumanMessage
-            from app.core.checkpointer_manager import get_checkpointer_manager
+            from app.infra.checkpointing.checkpoint_manager import get_checkpointer_manager
             
             messages = [HumanMessage(content=query)]
             inputs = {"messages": messages}

@@ -12,7 +12,7 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from app.core.logger import logger
+from app.core.logging import logger
 from app.core.config import settings
 
 
