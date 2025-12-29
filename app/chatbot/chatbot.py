@@ -6,6 +6,7 @@ Uses LLMManager for managing multiple LLM instances
 import sys
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+from abc import ABC, abstractmethod
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent.parent
@@ -17,17 +18,31 @@ from langchain.agents import create_agent
 
 from app.core.config import settings
 from app.core.logger import logger
-from app.llm_manager import get_llm_manager, get_llm, get_available_models
+from app.llm_manager import get_llm_manager, get_llm
 from app.core.checkpointer_manager import get_checkpointer
 from app.core.memory_config import MemoryConfig, get_memory_config
 from app.core.memory_manager import MemoryManager
 
 
-class ChatbotAgent:
+class ChatbotAgent(ABC):
     """
-    Generic chatbot agent class with RAG capabilities.
+    Abstract base class for chatbot agents with RAG capabilities.
     Encapsulates agent creation and chat functionality.
+    
+    This class cannot be instantiated directly. Subclasses must implement
+    the required methods and provide chatbot-specific configuration.
     """
+    
+    @abstractmethod
+    def _get_chatbot_type(self) -> str:
+        """
+        Get the chatbot type identifier.
+        Must be implemented by subclasses.
+        
+        Returns:
+            Chatbot type string (e.g., "hr", "default")
+        """
+        pass
     
     def __init__(
         self,
@@ -67,7 +82,9 @@ class ChatbotAgent:
         self.base_url = base_url
         
         # Memory configuration
-        self.memory_config = memory_config or get_memory_config(chatbot_type)
+        # Use provided chatbot_type or get from subclass implementation
+        self.chatbot_type = chatbot_type if chatbot_type else self._get_chatbot_type()
+        self.memory_config = memory_config or get_memory_config(self.chatbot_type)
         
         # Create the agent
         self._agent = None
@@ -121,8 +138,7 @@ class ChatbotAgent:
         self,
         query: str,
         thread_id: str,
-        user_id: Optional[str] = None,
-        chat_history: Optional[List[Dict[str, str]]] = None  # Deprecated: kept for backward compatibility
+        user_id: Optional[str] = None
     ) -> str:
         """
         Chat with the chatbot agent using checkpointer for memory management.
@@ -131,8 +147,6 @@ class ChatbotAgent:
             query: User's question
             thread_id: Thread/session identifier for maintaining conversation context
             user_id: Optional user identifier
-            chat_history: Deprecated - kept for backward compatibility but ignored
-                         (history is managed by checkpointer)
         
         Returns:
             Agent's response as a string
@@ -278,92 +292,7 @@ class ChatbotAgent:
         logger.info(f"Updated memory config: {memory_config.strategy.value}")
 
 
-# Factory functions for backward compatibility
-def create_chatbot_agent(
-    model_name: Optional[str] = None,
-    temperature: Optional[float] = None,
-    max_tokens: Optional[int] = None,
-    tools: Optional[List[BaseTool]] = None,
-    system_prompt: Optional[str] = None,
-    verbose: bool = False,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None
-):
-    """
-    Create a generic chatbot agent (factory function for backward compatibility).
-    
-    Args:
-        model_name: Name of the LLM model to use (default: from settings)
-        temperature: Temperature for the model (default: from settings)
-        max_tokens: Maximum tokens for responses (default: from settings)
-        tools: List of tools for the agent to use (default: empty list)
-        system_prompt: System prompt for the agent (optional)
-        verbose: Whether to enable verbose logging (default: False)
-        api_key: API key for the model provider (optional)
-        base_url: Base URL for the model API (optional, mainly for Ollama)
-        
-    Returns:
-        ChatbotAgent instance
-    """
-    agent = ChatbotAgent(
-        model_name=model_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        tools=tools,
-        system_prompt=system_prompt,
-        verbose=verbose,
-        api_key=api_key,
-        base_url=base_url
-    )
-    return agent.agent  # Return the underlying agent for backward compatibility
-
-
-def chat_with_agent(
-    agent,
-    query: str,
-    chat_history: Optional[List] = None
-) -> str:
-    """
-    Chat with the chatbot agent (backward compatibility function).
-    
-    Args:
-        agent: The agent instance (CompiledStateGraph from LangChain 1.0+)
-        query: User's question
-        chat_history: Optional chat history (list of messages)
-        
-    Returns:
-        Agent's response as a string
-    """
-    try:
-        # LangChain 1.0+ CompiledStateGraph
-        inputs = {"messages": [{"role": "user", "content": query}]}
-        if chat_history:
-            inputs["messages"] = chat_history + inputs["messages"]
-        
-        result = agent.invoke(inputs)
-        
-        # Extract response from the result
-        if isinstance(result, dict):
-            # Try different possible response formats
-            if "messages" in result and result["messages"]:
-                last_message = result["messages"][-1]
-                if hasattr(last_message, 'content'):
-                    return last_message.content
-                elif isinstance(last_message, dict) and "content" in last_message:
-                    return last_message["content"]
-            return result.get("output", str(result))
-        return str(result)
-        
-    except Exception as e:
-        error_msg = f"Error during chat: {str(e)}"
-        logger.error(error_msg, exc_info=True)
-        return f"I encountered an error while processing your question: {str(e)}"
-
-
 # Export for convenience
 __all__ = [
     "ChatbotAgent",
-    "create_chatbot_agent",
-    "chat_with_agent",
-    "get_available_models",
 ]

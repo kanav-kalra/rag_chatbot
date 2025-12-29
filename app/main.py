@@ -46,8 +46,8 @@ async def lifespan(app: FastAPI):
     
     # Initialize HR chatbot vector store (if HR chatbot is being used)
     try:
-        from app.chatbot.hr_chatbot import initialize_hr_chatbot_vector_store
-        initialize_hr_chatbot_vector_store()
+        from app.chatbot.hr_chatbot import _initialize_hr_chatbot_vector_store
+        _initialize_hr_chatbot_vector_store()
     except ImportError:
         logger.debug("HR chatbot module not available, skipping vector store initialization.")
     except Exception as e:
