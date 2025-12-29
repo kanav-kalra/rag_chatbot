@@ -13,7 +13,7 @@ if str(project_root) not in sys.path:
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from app.core.logger import logger
+from app.core.logging import logger
 
 
 def create_text_splitter(
@@ -121,7 +121,7 @@ def split_text(
 
 if __name__ == "__main__":
     # Example usage
-    from app.document_loader.pdf_loader import load_pdf_documents
+    from ingestion.loader import load_pdf_documents
     
     try:
         # Load documents

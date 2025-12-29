@@ -15,7 +15,7 @@ if str(project_root) not in sys.path:
 from langgraph.checkpoint.redis import RedisSaver
 from langgraph.checkpoint.memory import InMemorySaver
 
-from app.core.logger import logger
+from app.core.logging import logger
 from app.core.config import settings
 
 

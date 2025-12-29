@@ -15,9 +15,9 @@ from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import InMemoryVectorStore
 
 from app.core.config import settings
-from app.core.logger import logger
-from app.document_loader.pdf_loader import load_pdf_documents
-from app.document_loader.text_splitter import split_documents
+from app.core.logging import logger
+from ingestion.loader import load_pdf_documents
+from ingestion.chunker import split_documents
 
 
 def create_vector_store(
