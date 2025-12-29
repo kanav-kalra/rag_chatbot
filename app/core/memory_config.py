@@ -54,13 +54,13 @@ class MemoryConfig:
 # Default summarize_model uses a model with higher context window for better summarization
 DEFAULT_MEMORY_CONFIGS = {
     "hr": MemoryConfig(
-        strategy=MemoryStrategy.SUMMARIZE,  # Can be overridden via settings or API
+        strategy=MemoryStrategy.TRIM,  # Can be overridden via settings or API
         trim_keep_messages=10,
-        summarize_threshold=2,
+        summarize_threshold=20,
         summarize_model="gpt-3.5-turbo-16k",  # Use high-context model for summarization
     ),
     "default": MemoryConfig(
-        strategy=MemoryStrategy.NONE,
+        strategy=MemoryStrategy.TRIM,
         trim_keep_messages=10,
         summarize_threshold=20,
         summarize_model="gpt-3.5-turbo-16k",  # Use high-context model for summarization
