@@ -1,9 +1,10 @@
 """
 Session Management for Chatbot - Handles multiple concurrent user sessions
+Sessions are metadata containers only. Agents are fetched from agent pool at runtime.
 """
 import sys
 from pathlib import Path
-from typing import Dict, Optional, Callable
+from typing import Dict, Optional
 from threading import Lock
 from datetime import datetime, timedelta
 import uuid
@@ -15,44 +16,27 @@ if str(project_root) not in sys.path:
 
 from app.core.logger import logger
 from app.core.config import settings
-from app.chatbot.agent_pool import get_agent_pool
 
 
 class ChatbotSession:
     """
     Represents a single user's chat session.
-    Manages session metadata (chat history is managed by checkpointer).
-    Uses shared agent from session manager.
+    Manages session metadata only (chat history is managed by checkpointer).
+    Agents are fetched from agent pool at runtime by API functions.
     """
     
-    def __init__(self, session_id: str, agent_getter: Callable, user_id: Optional[str] = None):
+    def __init__(self, session_id: str, user_id: Optional[str] = None):
         """
         Initialize a chatbot session.
         
         Args:
             session_id: Unique session identifier (used as thread_id for checkpointer)
-            agent_getter: Callable that returns the shared agent instance
             user_id: Optional user identifier
         """
         self.session_id = session_id
-        self._agent_getter = agent_getter
-        self._custom_agent = None  # For custom agent configurations
         self.user_id = user_id
         self.created_at = datetime.now()
         self.last_activity = datetime.now()
-    
-    @property
-    def agent(self):
-        """Get the agent instance (custom if set, otherwise shared)."""
-        if self._custom_agent is not None:
-            return self._custom_agent
-        return self._agent_getter()
-    
-    @agent.setter
-    def agent(self, value):
-        """Set a custom agent for this session."""
-        self._custom_agent = value
-        logger.debug(f"Set custom agent for session {self.session_id}")
     
     def update_activity(self) -> None:
         """Update last activity timestamp."""
@@ -83,67 +67,33 @@ class ChatbotSession:
 
 class ChatbotSessionManager:
     """
-    Manages multiple chatbot sessions for concurrent users.
-    Uses agent pool from agent_pool module for efficient resource usage.
+    Manages multiple user chat sessions.
+    Sessions are metadata containers only. Agents are fetched from agent pool at runtime.
     Thread-safe implementation for production use.
     Designed for multi-server, multi-user deployments.
     """
     
     def __init__(
         self,
-        chatbot_type: str = "default",
-        agent_factory: Optional[Callable] = None,
         session_timeout: Optional[timedelta] = None,
-        max_sessions: Optional[int] = None,
-        agent_pool_size: Optional[int] = None
+        max_sessions: Optional[int] = None
     ):
         """
-        Initialize session manager with agent pool.
+        Initialize session manager.
         
         Args:
-            chatbot_type: Type of chatbot (e.g., "hr", "default")
-            agent_factory: Function that creates a new agent instance (required for first initialization)
             session_timeout: Time after which inactive sessions expire (default: 24 hours)
             max_sessions: Maximum number of concurrent sessions (None for unlimited)
-            agent_pool_size: Number of agents in the pool (optional, uses settings if not provided)
         """
-        self.chatbot_type = chatbot_type
         self.sessions: Dict[str, ChatbotSession] = {}
         self.lock = Lock()
         self.session_timeout = session_timeout or timedelta(hours=24)
         self.max_sessions = max_sessions
         
-        # Get or create agent pool for this chatbot type
-        if agent_factory is not None:
-            self._agent_pool = get_agent_pool(
-                chatbot_type=chatbot_type,
-                agent_factory=agent_factory,
-                pool_size=agent_pool_size
-            )
-        else:
-            # Try to get existing pool
-            try:
-                self._agent_pool = get_agent_pool(chatbot_type=chatbot_type)
-            except ValueError:
-                raise ValueError(
-                    f"Agent pool for '{chatbot_type}' does not exist. "
-                    "Provide agent_factory for first initialization."
-                )
-        
         logger.info(
-            f"Initialized ChatbotSessionManager for '{chatbot_type}' with "
-            f"timeout={self.session_timeout}, max_sessions={self.max_sessions}, "
-            f"pool_size={self._agent_pool.get_pool_size()}"
+            f"Initialized ChatbotSessionManager with "
+            f"timeout={self.session_timeout}, max_sessions={self.max_sessions}"
         )
-    
-    def _get_agent(self):
-        """
-        Get an agent from the agent pool.
-        
-        Returns:
-            Agent instance from the pool
-        """
-        return self._agent_pool.get_agent()
     
     @property
     def max_sessions(self) -> Optional[int]:
@@ -187,12 +137,10 @@ class ChatbotSessionManager:
                         f"Maximum number of sessions ({self.max_sessions}) reached"
                     )
             
-            # Create new session with shared agent
+            # Create new session (metadata only, no agent reference)
             try:
-                # Pass agent getter function instead of agent instance
                 session = ChatbotSession(
-                    session_id, 
-                    agent_getter=self._get_agent,
+                    session_id=session_id,
                     user_id=user_id
                 )
                 self.sessions[session_id] = session
@@ -307,15 +255,10 @@ class ChatbotSessionManager:
     def get_session_stats(self) -> dict:
         """Get statistics about sessions."""
         with self.lock:
-            custom_agent_sessions = sum(1 for s in self.sessions.values() if s._custom_agent is not None)
-            pool_stats = self._agent_pool.get_stats()
             return {
                 "total_sessions": len(self.sessions),
                 "session_timeout_hours": self.session_timeout.total_seconds() / 3600,
                 "max_sessions": self.max_sessions,
-                "chatbot_type": self.chatbot_type,
-                "agent_pool": pool_stats,
-                "sessions_with_custom_agents": custom_agent_sessions,
-                "note": "Chat history is managed by checkpointer, not session manager"
+                "note": "Chat history is managed by checkpointer. Agents are fetched from agent pool at runtime."
             }
 
