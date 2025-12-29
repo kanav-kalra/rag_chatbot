@@ -47,6 +47,7 @@ def get_or_create_session(
 ) -> ChatbotSession:
     """
     FastAPI dependency that gets or creates a session.
+    Activity is automatically updated and persisted to Redis.
     
     Usage:
         @router.post("/chat")
@@ -69,11 +70,11 @@ def get_or_create_session(
     """
     try:
         session_manager = get_session_manager()
+        # get_or_create_session already updates activity and saves to Redis
         session = session_manager.get_or_create_session(
             session_id=session_id,
             user_id=user_id
         )
-        session.update_activity()
         return session
     except RuntimeError as e:
         logger.error(f"Failed to get or create session: {e}", exc_info=True)
