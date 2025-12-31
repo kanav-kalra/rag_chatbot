@@ -12,15 +12,15 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from langchain_core.tools import BaseTool
+from langchain_core.runnables import RunnableConfig
 
 from app.core.config import settings
 from app.core.logging import logger
 from app.services.chatbot.chatbot_service import ChatbotAgent
 from app.infra.llm.llm_manager import get_llm
 from app.services.chatbot.prompts import HR_CHATBOT_SYSTEM_PROMPT, AGENT_INSTRUCTIONS
-from app.services.retrieval.retrieval_service import retrieve_documents
-from ingestion.embedder import build_memory_from_pdfs
-from vectorstore.client import set_vector_store
+from app.services.retrieval.retrieval_service import RetrievalService
+from app.infra.vectorstore import get_vector_store
 from app.core.memory_config import get_memory_config
 from app.services.chatbot.agent_pool import get_agent_pool
 
@@ -51,16 +51,21 @@ class HRChatbot(ChatbotAgent):
             model_name: Name of the LLM model to use (default: from settings)
             temperature: Temperature for the model (default: from settings)
             max_tokens: Maximum tokens for responses (default: from settings)
-            tools: List of additional tools for the agent (default: [retrieve_documents])
+            tools: List of additional tools for the agent (default: includes retrieval tool)
             verbose: Whether to enable verbose logging (default: False)
             base_url: Base URL for the model API (optional, mainly for Ollama)
         """
-        # Set up tools (default to retrieve_documents if not provided)
+        # Get vector store for HR chatbot and create retrieval service
+        vector_store = get_vector_store("hr")
+        retrieval_service = RetrievalService(vector_store)
+        retrieve_documents_tool = retrieval_service.create_tool()
+        
+        # Set up tools (default to include retrieval tool if not provided)
         if tools is None:
-            tools = [retrieve_documents]
-        elif retrieve_documents not in tools:
-            # Always include retrieve_documents for HR chatbot
-            tools = [retrieve_documents] + tools
+            tools = [retrieve_documents_tool]
+        elif retrieve_documents_tool not in tools:
+            # Always include retrieval tool for HR chatbot
+            tools = [retrieve_documents_tool] + tools
         
         # Create system prompt for HR chatbot
         system_prompt = HR_CHATBOT_SYSTEM_PROMPT + "\n\n" + AGENT_INSTRUCTIONS
@@ -84,37 +89,6 @@ class HRChatbot(ChatbotAgent):
         logger.info(
             f"Initialized HRChatbot with model: {self.model_name}"
         )
-    
-    @staticmethod
-    def _initialize_vector_store() -> None:
-        """
-        Initialize the vector store for HR chatbot.
-        This should be called during application startup.
-        
-        Raises:
-            Exception: If vector store initialization fails
-        """
-        try:
-            logger.info("Initializing HR chatbot vector store...")
-            vector_store = build_memory_from_pdfs()
-            set_vector_store(vector_store)
-            logger.info("HR chatbot vector store initialized successfully.")
-            logger.info("Vector store set globally for retrieval tools.")
-        except Exception as e:
-            logger.error(f"Error initializing HR chatbot vector store: {e}", exc_info=True)
-            raise
-
-
-def _initialize_hr_chatbot_vector_store():
-    """
-    Initialize the vector store for HR chatbot on application startup.
-    This should be called during application startup to load HR documents into the vector store.
-    Private function - use HRChatbot._initialize_vector_store() directly if needed.
-    
-    Raises:
-        Exception: If vector store initialization fails
-    """
-    HRChatbot._initialize_vector_store()
 
 
 def _create_hr_chatbot(
@@ -133,7 +107,7 @@ def _create_hr_chatbot(
         model_name: Name of the LLM model to use (default: from settings)
         temperature: Temperature for the model (default: from settings)
         max_tokens: Maximum tokens for responses (default: from settings)
-        tools: List of additional tools for the agent (default: [retrieve_documents])
+        tools: List of additional tools for the agent (default: includes retrieval tool)
         verbose: Whether to enable verbose logging (default: False)
         base_url: Base URL for the model API (optional, mainly for Ollama)
         
@@ -196,9 +170,27 @@ def get_hr_chatbot() -> HRChatbot:
         raise RuntimeError(f"Failed to get HR chatbot from pool: {str(e)}") from e
 
 
+def get_hr_chatbot_graph(config: Optional[RunnableConfig] = None):
+    """
+    Get HR chatbot graph for LangGraph Studio.
+    
+    This function returns the compiled graph from the graph factory.
+    The graph is created at module import time as required by LangGraph Studio.
+    
+    Args:
+        config: RunnableConfig provided by LangGraph Studio (optional, not used)
+        
+    Returns:
+        LangGraph agent instance (compiled graph)
+    """
+    # Import here to avoid circular dependencies
+    from app.services.chatbot import graph_factory
+    return graph_factory.hr_chatbot
+
+
 # Re-export for convenience
 __all__ = [
     "HRChatbot",
     "get_hr_chatbot",
-    "_initialize_hr_chatbot_vector_store",  # Private, but needed for main.py
+    "get_hr_chatbot_graph",
 ]

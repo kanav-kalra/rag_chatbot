@@ -103,6 +103,22 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         "default_max_tokens": 2000,
         "requires_package": "langchain-ollama",
     },
+    "llama3.1": {
+        "provider": "ollama",
+        "model_name": "llama3.1",
+        "class": ChatOllama if OLLAMA_AVAILABLE else None,
+        "default_temperature": 0.7,
+        "default_max_tokens": 2000,
+        "requires_package": "langchain-ollama",
+    },
+    "llama3.2": {
+        "provider": "ollama",
+        "model_name": "llama3.2",
+        "class": ChatOllama if OLLAMA_AVAILABLE else None,
+        "default_temperature": 0.7,
+        "default_max_tokens": 2000,
+        "requires_package": "langchain-ollama",
+    },
     "mistral": {
         "provider": "ollama",
         "model_name": "mistral",

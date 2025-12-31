@@ -55,14 +55,14 @@ class MemoryConfig:
 DEFAULT_MEMORY_CONFIGS = {
     "hr": MemoryConfig(
         strategy=MemoryStrategy.TRIM,  # Can be overridden via settings or API
-        trim_keep_messages=10,
-        summarize_threshold=20,
+        trim_keep_messages=1,
+        summarize_threshold=2,
         summarize_model="gpt-3.5-turbo-16k",  # Use high-context model for summarization
     ),
     "default": MemoryConfig(
         strategy=MemoryStrategy.TRIM,
-        trim_keep_messages=10,
-        summarize_threshold=20,
+        trim_keep_messages=1,
+        summarize_threshold=2,
         summarize_model="gpt-3.5-turbo-16k",  # Use high-context model for summarization
     ),
 }

@@ -1,0 +1,17 @@
+"""
+Vector Store Infrastructure
+"""
+from app.infra.vectorstore.vector_store_manager import (
+    get_vector_store,
+    clear_vector_store_cache,
+    is_vector_store_available,
+    get_vector_store_config
+)
+
+__all__ = [
+    "get_vector_store",
+    "clear_vector_store_cache",
+    "is_vector_store_available",
+    "get_vector_store_config",
+]
+

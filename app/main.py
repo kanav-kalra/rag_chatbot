@@ -36,6 +36,16 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("FastAPI application startup initiated.")
     
+    # Initialize LangSmith tracing (if enabled)
+    try:
+        from app.core.langsmith_config import initialize_langsmith
+        if initialize_langsmith():
+            logger.info("LangSmith tracing enabled")
+        else:
+            logger.info("LangSmith tracing is disabled (set LANGCHAIN_TRACING_V2=true to enable)")
+    except Exception as e:
+        logger.warning(f"LangSmith initialization failed: {e}. Continuing without tracing.")
+    
     # Initialize checkpointer manager (Redis connection)
     try:
         from app.infra.checkpointing.checkpoint_manager import get_checkpointer_manager
@@ -44,14 +54,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Checkpointer initialization failed: {e}. Continuing with fallback.")
     
-    # Initialize HR chatbot vector store (if HR chatbot is being used)
-    try:
-        from app.services.chatbot.hr_chatbot import _initialize_hr_chatbot_vector_store
-        _initialize_hr_chatbot_vector_store()
-    except ImportError:
-        logger.debug("HR chatbot module not available, skipping vector store initialization.")
-    except Exception as e:
-        logger.warning(f"HR chatbot vector store initialization failed: {e}. Continuing without it.")
+    # Note: HR chatbot vector store is now loaded on-demand from ChromaDB
+    # Run 'python jobs/create_hr_vectorstore.py' to create the vector store
     
     yield
     

@@ -188,4 +188,6 @@ secrets.json
 # LangChain / LangSmith
 .langchain/
 .langsmith/
-
+.langgraph_api/
+#chroma db
+chroma_db/
