@@ -36,6 +36,16 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("FastAPI application startup initiated.")
     
+    # Initialize LangSmith tracing (if enabled)
+    try:
+        from app.core.langsmith_config import initialize_langsmith
+        if initialize_langsmith():
+            logger.info("LangSmith tracing enabled")
+        else:
+            logger.info("LangSmith tracing is disabled (set LANGCHAIN_TRACING_V2=true to enable)")
+    except Exception as e:
+        logger.warning(f"LangSmith initialization failed: {e}. Continuing without tracing.")
+    
     # Initialize checkpointer manager (Redis connection)
     try:
         from app.infra.checkpointing.checkpoint_manager import get_checkpointer_manager

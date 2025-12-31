@@ -11,6 +11,11 @@ if str(project_root) not in sys.path:
 
 import streamlit as st
 from app.core.config import settings
+from app.core.langsmith_config import initialize_langsmith
+
+# Initialize LangSmith tracing (if enabled)
+# This ensures LangSmith works when Streamlit is run independently
+initialize_langsmith()
 
 st.set_page_config(
     page_title=settings.PROJECT_NAME,

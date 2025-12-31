@@ -12,6 +12,7 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from langchain_core.tools import BaseTool
+from langchain_core.runnables import RunnableConfig
 
 from app.core.config import settings
 from app.core.logging import logger
@@ -169,8 +170,27 @@ def get_hr_chatbot() -> HRChatbot:
         raise RuntimeError(f"Failed to get HR chatbot from pool: {str(e)}") from e
 
 
+def get_hr_chatbot_graph(config: Optional[RunnableConfig] = None):
+    """
+    Get HR chatbot graph for LangGraph Studio.
+    
+    This function returns the compiled graph from the graph factory.
+    The graph is created at module import time as required by LangGraph Studio.
+    
+    Args:
+        config: RunnableConfig provided by LangGraph Studio (optional, not used)
+        
+    Returns:
+        LangGraph agent instance (compiled graph)
+    """
+    # Import here to avoid circular dependencies
+    from app.services.chatbot import graph_factory
+    return graph_factory.hr_chatbot
+
+
 # Re-export for convenience
 __all__ = [
     "HRChatbot",
     "get_hr_chatbot",
+    "get_hr_chatbot_graph",
 ]

@@ -1,0 +1,31 @@
+{
+  "dependencies": [
+    ".",
+    "fastapi==0.127.0",
+    "uvicorn==0.40.0",
+    "langchain",
+    "langchain-classic==1.0.1",
+    "langchain-community==0.4.1",
+    "langchain-core==1.2.5",
+    "langchain-text-splitters==1.1.0",
+    "langchain-openai",
+    "langchain-anthropic",
+    "langchain-ollama",
+    "langsmith",
+    "langgraph",
+    "langgraph-checkpoint-redis",
+    "redis",
+    "pypdf==6.5.0",
+    "python-dotenv",
+    "chromadb",
+    "streamlit==1.39.0",
+    "pydantic==2.12.5",
+    "pydantic-settings==2.12.0"
+  ],
+  "graphs": {
+    "hr_chatbot": "app.services.chatbot.graph_factory:hr_chatbot",
+    "default_chatbot": "app.services.chatbot.graph_factory:default_chatbot"
+  },
+  "env": ".env"
+}
+

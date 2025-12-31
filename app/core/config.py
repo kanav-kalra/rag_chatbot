@@ -88,6 +88,19 @@ class Settings:
     # HR Chatbot ChromaDB Configuration
     HR_CHROMA_PERSIST_DIR: str = os.getenv("HR_CHROMA_PERSIST_DIR", "./chroma_db/hr_chatbot")
     HR_CHROMA_COLLECTION_NAME: str = os.getenv("HR_CHROMA_COLLECTION_NAME", "hr_chatbot")
+    
+    # LangSmith Configuration (for observability and tracing)
+    # Note: Both LANGSMITH_API_KEY and LANGCHAIN_API_KEY are supported
+    # LANGSMITH_API_KEY is the preferred name per LangSmith Studio documentation
+    LANGCHAIN_TRACING_V2: bool = os.getenv("LANGCHAIN_TRACING_V2", "false").lower() == "true"
+    # Support both LANGSMITH_API_KEY (preferred) and LANGCHAIN_API_KEY (legacy)
+    LANGCHAIN_API_KEY: str = os.getenv("LANGSMITH_API_KEY") or os.getenv("LANGCHAIN_API_KEY", "")
+    LANGCHAIN_PROJECT: str = os.getenv("LANGCHAIN_PROJECT", "rag-chatbot")
+    LANGCHAIN_ENDPOINT: str = os.getenv("LANGCHAIN_ENDPOINT", "https://api.smith.langchain.com")
+    # Workspace ID is only required for org-scoped API keys
+    # If your API key is org-scoped, set this to your workspace ID
+    # If not org-scoped, leave it empty
+    LANGSMITH_WORKSPACE_ID: str = os.getenv("LANGSMITH_WORKSPACE_ID", "")
 
 
 # Create settings instance
