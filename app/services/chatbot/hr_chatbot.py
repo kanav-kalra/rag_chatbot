@@ -1,151 +1,52 @@
 """
-HR Chatbot - OOP implementation
-Wrapper around generic chatbot with HR-specific prompts and tools
+HR Chatbot - Minimal implementation using refactored ChatbotAgent architecture.
+All configuration comes from hr_chatbot_config.yaml via ChatbotConfigManager.
 """
-import sys
-from pathlib import Path
-from typing import Optional, List
-
-# Add project root to Python path
-project_root = Path(__file__).parent.parent.parent
-if str(project_root) not in sys.path:
-    sys.path.insert(0, str(project_root))
-
-from langchain_core.tools import BaseTool
-from langchain_core.runnables import RunnableConfig
-
-from app.core.config import settings
-from app.core.logging import logger
 from app.services.chatbot.chatbot_service import ChatbotAgent
-from app.infra.llm.llm_manager import get_llm
-from app.services.chatbot.prompts import HR_CHATBOT_SYSTEM_PROMPT, AGENT_INSTRUCTIONS
-from app.services.retrieval.retrieval_service import RetrievalService
-from app.infra.vectorstore import get_vector_store
-from app.core.memory_config import get_memory_config
-from app.services.chatbot.agent_pool import get_agent_pool
 
 
 class HRChatbot(ChatbotAgent):
     """
-    HR-specific chatbot that extends the generic ChatbotAgent.
-    Includes HR-specific prompts and retrieval tools.
+    HR-specific chatbot implementation.
+    
+    This is a minimal subclass that only defines:
+    1. Chatbot type identifier ("hr")
+    2. Config filename ("hr_chatbot_config.yaml")
+    
+    All other functionality (config loading, tool creation, prompt building, etc.)
+    is handled by the base ChatbotAgent class using the new architecture:
+    - ChatbotConfigManager for configuration
+    - ChatbotToolFactory for tools
+    - ChatbotPromptBuilder for prompts
+    
+    Usage:
+        chatbot = HRChatbot.get_from_pool()
+        response = chatbot.chat("Hello", thread_id="thread-123")
     """
     
     def _get_chatbot_type(self) -> str:
-        """Get the chatbot type identifier."""
+        """Return the chatbot type identifier."""
         return "hr"
     
-    def __init__(
-        self,
-        model_name: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        tools: Optional[List[BaseTool]] = None,
-        verbose: bool = False,
-        base_url: Optional[str] = None
-    ):
-        """
-        Initialize HR chatbot.
-        
-        Args:
-            model_name: Name of the LLM model to use (default: from settings.HR_CHAT_MODEL, which defaults to gemini-1.5-flash)
-            temperature: Temperature for the model (default: from settings)
-            max_tokens: Maximum tokens for responses (default: from settings)
-            tools: List of additional tools for the agent (default: includes retrieval tool)
-            verbose: Whether to enable verbose logging (default: False)
-            base_url: Base URL for the model API (optional, mainly for Ollama)
-        """
-        # Use HR-specific model from settings if not provided
-        if model_name is None:
-            model_name = settings.HR_CHAT_MODEL
-        # Get vector store for HR chatbot and create retrieval service
-        vector_store = get_vector_store("hr")
-        retrieval_service = RetrievalService(vector_store)
-        retrieve_documents_tool = retrieval_service.create_tool()
-        
-        # Set up tools (default to include retrieval tool if not provided)
-        if tools is None:
-            tools = [retrieve_documents_tool]
-        elif retrieve_documents_tool not in tools:
-            # Always include retrieval tool for HR chatbot
-            tools = [retrieve_documents_tool] + tools
-        
-        # Create system prompt for HR chatbot
-        system_prompt = HR_CHATBOT_SYSTEM_PROMPT + "\n\n" + AGENT_INSTRUCTIONS
-        
-        # Get default HR memory config (defaults to TRIM strategy, can be overridden via config/env)
-        memory_config = get_memory_config("hr", use_settings=True)
-        
-        # Initialize parent class
-        super().__init__(
-            model_name=model_name,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            tools=tools,
-            system_prompt=system_prompt,
-            verbose=verbose,
-            base_url=base_url,
-            memory_config=memory_config,
-            chatbot_type="hr"
-        )
-        
-        logger.info(
-            f"Initialized HRChatbot with model: {self.model_name}"
-        )
-
-
-def _create_hr_chatbot(
-    model_name: Optional[str] = None,
-    temperature: Optional[float] = None,
-    max_tokens: Optional[int] = None,
-    tools: Optional[List[BaseTool]] = None,
-    verbose: bool = False,
-    base_url: Optional[str] = None
-) -> HRChatbot:
-    """
-    Create an HR chatbot instance (private factory function).
-    Agents should be fetched from agent pool, not created directly.
+    @classmethod
+    def _get_config_filename(cls) -> str:
+        """Return the YAML config filename."""
+        return "hr_chatbot_config.yaml"
     
-    Args:
-        model_name: Name of the LLM model to use (default: from settings)
-        temperature: Temperature for the model (default: from settings)
-        max_tokens: Maximum tokens for responses (default: from settings)
-        tools: List of additional tools for the agent (default: includes retrieval tool)
-        verbose: Whether to enable verbose logging (default: False)
-        base_url: Base URL for the model API (optional, mainly for Ollama)
+    @classmethod
+    def _get_default_instance(cls) -> "HRChatbot":
+        """
+        Create a default HR chatbot instance for the agent pool.
         
-    Returns:
-        HRChatbot instance
-    """
-    return HRChatbot(
-        model_name=model_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        tools=tools,
-        verbose=verbose,
-        base_url=base_url
-    )
-
-
-def _get_default_hr_chatbot() -> HRChatbot:
-    """
-    Get or create a default HR chatbot instance with configuration from settings.
-    Private function - use get_hr_chatbot() to get from agent pool instead.
-    
-    Returns:
-        HRChatbot instance configured with settings
-    """
-    # Memory config is automatically loaded from settings via get_memory_config("hr")
-    # which uses get_memory_config_from_settings internally
-    return _create_hr_chatbot(
-        verbose=False
-    )
+        Returns:
+            HRChatbot instance with configuration from hr_chatbot_config.yaml
+        """
+        return HRChatbot()
 
 
 def get_hr_chatbot() -> HRChatbot:
     """
     Get an HR chatbot instance from the agent pool.
-    Uses default configuration from settings.
     
     This is the recommended way to get the HR chatbot for API use.
     The agent pool ensures efficient resource usage across multiple requests.
@@ -157,43 +58,10 @@ def get_hr_chatbot() -> HRChatbot:
     Raises:
         RuntimeError: If chatbot initialization fails
     """
-    try:
-        # Get agent pool for HR chatbot type
-        # The pool will create instances using the factory if needed
-        agent_pool = get_agent_pool(
-            chatbot_type="hr",
-            agent_factory=_get_default_hr_chatbot
-        )
-        
-        # Get agent from pool
-        chatbot = agent_pool.get_agent()
-        return chatbot
-    except Exception as e:
-        logger.error(f"Failed to get HR chatbot from pool: {e}", exc_info=True)
-        raise RuntimeError(f"Failed to get HR chatbot from pool: {str(e)}") from e
+    return HRChatbot.get_from_pool()
 
 
-def get_hr_chatbot_graph(config: Optional[RunnableConfig] = None):
-    """
-    Get HR chatbot graph for LangGraph Studio.
-    
-    This function returns the compiled graph from the graph factory.
-    The graph is created at module import time as required by LangGraph Studio.
-    
-    Args:
-        config: RunnableConfig provided by LangGraph Studio (optional, not used)
-        
-    Returns:
-        LangGraph agent instance (compiled graph)
-    """
-    # Import here to avoid circular dependencies
-    from app.services.chatbot import graph_factory
-    return graph_factory.hr_chatbot
-
-
-# Re-export for convenience
 __all__ = [
     "HRChatbot",
     "get_hr_chatbot",
-    "get_hr_chatbot_graph",
 ]

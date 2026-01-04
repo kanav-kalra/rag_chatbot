@@ -19,12 +19,13 @@ load_dotenv(dotenv_path=env_path)
 
 from langchain.agents import create_agent
 
+import yaml
+
 from app.core.config import settings
 from app.core.logging import logger
 from app.infra.llm.llm_manager import get_llm
 from app.services.retrieval.retrieval_service import RetrievalService
 from app.infra.vectorstore import get_vector_store
-from app.services.chatbot.prompts import HR_CHATBOT_SYSTEM_PROMPT, AGENT_INSTRUCTIONS
 
 # Initialize LangSmith tracing if enabled (required for LangGraph Studio)
 # This ensures environment variables are set before graph creation
@@ -58,8 +59,21 @@ def _create_hr_chatbot_graph():
         retrieval_service = RetrievalService(vector_store)
         retrieve_documents_tool = retrieval_service.create_tool()
         
+        # Load prompts from hr_chatbot_prompts.yaml
+        prompts_file = Path(__file__).parent / "hr_chatbot_prompts.yaml"
+        if not prompts_file.exists():
+            raise FileNotFoundError(f"Prompts file not found: {prompts_file}")
+        
+        with open(prompts_file, "r", encoding="utf-8") as f:
+            prompts_data = yaml.safe_load(f)
+        
+        system_prompt_text = prompts_data.get("system_prompt", "")
+        agent_instructions = prompts_data.get("agent_instructions", "")
+        
         # Create system prompt
-        system_prompt = HR_CHATBOT_SYSTEM_PROMPT + "\n\n" + AGENT_INSTRUCTIONS
+        system_prompt = system_prompt_text
+        if agent_instructions:
+            system_prompt = system_prompt + "\n\n" + agent_instructions
         
         # Note: No checkpointer needed for LangGraph Studio/API
         # The platform handles persistence automatically

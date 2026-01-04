@@ -27,3 +27,4 @@ python-dotenv
 chromadb
 typing-extensions
 starlette
+pyyaml

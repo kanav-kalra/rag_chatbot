@@ -90,6 +90,9 @@ class Settings:
     
     # HR Chatbot Configuration
     HR_CHAT_MODEL: str = os.getenv("HR_CHAT_MODEL", "gemini-2.5-flash")  # Default to Gemini 2.5 Flash for HR chatbot
+    HR_CHAT_MODEL_TEMPERATURE: float = float(os.getenv("HR_CHAT_MODEL_TEMPERATURE", "0.7"))
+    HR_CHAT_MODEL_MAX_TOKENS: int = int(os.getenv("HR_CHAT_MODEL_MAX_TOKENS", "2000"))
+    HR_AGENT_POOL_SIZE: int = int(os.getenv("HR_AGENT_POOL_SIZE", "1"))  # Default: 1 shared agent for HR chatbot
     HR_CHROMA_PERSIST_DIR: str = os.getenv("HR_CHROMA_PERSIST_DIR", "./chroma_db/hr_chatbot")
     HR_CHROMA_COLLECTION_NAME: str = os.getenv("HR_CHROMA_COLLECTION_NAME", "hr_chatbot")
     # Embedding configuration: "openai" or "google" (default: auto-detect based on HR_CHAT_MODEL)

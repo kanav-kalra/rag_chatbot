@@ -2,10 +2,17 @@
 Generic Chatbot with RAG - OOP implementation
 Creates an agent using LangChain's create_agent
 Uses LLMManager for managing multiple LLM instances
+
+Refactored to follow SOLID principles:
+- Single Responsibility: Configuration, tools, and prompts handled by separate classes
+- Open/Closed: Extensible through subclassing without modification
+- Liskov Substitution: Subclasses can replace base class
+- Interface Segregation: Focused abstract methods
+- Dependency Inversion: Uses abstractions (config manager, tool factory, prompt builder)
 """
 import sys
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Any
 from abc import ABC, abstractmethod
 
 # Add project root to Python path
@@ -18,10 +25,14 @@ from langchain.agents import create_agent
 
 from app.core.config import settings
 from app.core.logging import logger
-from app.infra.llm.llm_manager import get_llm_manager, get_llm
+from app.infra.llm.llm_manager import get_llm
 from app.infra.checkpointing.checkpoint_manager import get_checkpointer
-from app.core.memory_config import MemoryConfig, get_memory_config
+from app.core.memory_config import MemoryConfig, MemoryStrategy, get_memory_config
 from app.services.memory.memory_manager import MemoryManager
+from app.services.chatbot.agent_pool import get_agent_pool
+from app.services.chatbot.config_manager import ChatbotConfigManager, ConfigKeys
+from app.services.chatbot.tool_factory import ChatbotToolFactory
+from app.services.chatbot.prompt_builder import ChatbotPromptBuilder
 
 
 class ChatbotAgent(ABC):
@@ -31,6 +42,80 @@ class ChatbotAgent(ABC):
     
     This class cannot be instantiated directly. Subclasses must implement
     the required methods and provide chatbot-specific configuration.
+    
+    Extension Points:
+    -----------------
+    Subclasses can customize behavior by overriding these methods:
+    
+    1. _get_chatbot_type() - REQUIRED: Return chatbot type identifier
+    2. _get_config_filename() - Return YAML config filename (optional, enables auto-loading)
+    
+    Note: If _get_config_filename() is defined, the base class automatically loads
+    the YAML config and uses it for ALL configuration:
+    - model_name, temperature, max_tokens, base_url, verbose
+    - memory configuration (strategy, trim_keep_messages, etc.)
+    - tools configuration (enable_retrieval, vector_store.type)
+    - system_prompt (template and agent_instructions_template)
+    - agent_pool.size (for agent pool configuration)
+    
+    If YAML config doesn't have values, it falls back to:
+    - settings.CHAT_MODEL, settings.CHAT_MODEL_TEMPERATURE, etc. for model settings
+    - Default prompts from default_prompts.yaml (or custom prompts file if _get_prompts_filename() is overridden)
+    - Generic defaults for memory and other settings
+    
+    For YAML-based chatbots (like HRChatbot), ALL configuration comes from the YAML file.
+    No need to override any hook methods!
+    
+    Example Extension (YAML-based configuration):
+    -------------------------------------------
+    To create a new chatbot with YAML configuration:
+    
+    1. Create a YAML config file in app/core/ (e.g., "support_chatbot_config.yaml"):
+       ```yaml
+       model:
+         name: "gpt-4"
+         temperature: 0.7
+         max_tokens: 2000
+       vector_store:
+         type: "support"
+       tools:
+         enable_retrieval: true
+       memory:
+         strategy: "trim"
+         trim_keep_messages: 5
+       agent_pool:
+         size: 2
+       ```
+    
+    2. Create a subclass:
+       ```python
+       class SupportChatbot(ChatbotAgent):
+           def _get_chatbot_type(self) -> str:
+               return "support"
+           
+           @classmethod
+           def _get_config_filename(cls) -> str:
+               return "support_chatbot_config.yaml"
+           
+           # That's it! The base class automatically loads the YAML config
+           # and uses it for ALL configuration (model, memory, tools, system_prompt).
+           # No need to override any hook methods - everything comes from YAML!
+       ```
+    
+    3. Use it:
+       ```python
+       chatbot = SupportChatbot.get_from_pool()
+       response = chatbot.chat("Hello", thread_id="thread-123")
+       ```
+    
+    That's it! The base class handles all the configuration loading, agent creation,
+    and memory management. You only need to specify the chatbot type and config filename.
+    
+    Core Logic:
+    ----------
+    The core chat functionality, memory management, and agent initialization
+    are handled by this base class. Subclasses only need to customize
+    configuration and behavior through the extension hooks above.
     """
     
     @abstractmethod
@@ -44,6 +129,81 @@ class ChatbotAgent(ABC):
         """
         pass
     
+    @classmethod
+    @abstractmethod
+    def _get_default_instance(cls):
+        """
+        Get or create a default instance of this chatbot type.
+        Must be implemented by subclasses.
+        
+        This is used by the agent pool to create new instances.
+        
+        Returns:
+            Instance of the chatbot subclass with default configuration
+        """
+        pass
+    
+    # Note: _get_pool_size() has been removed. Pool size is now read from YAML config
+    # (agent_pool.size) in the get_from_pool() method.
+    
+    @classmethod
+    def _get_config_filename(cls) -> Optional[str]:
+        """
+        Get the YAML config filename for this chatbot type.
+        Override in subclasses to specify a config file.
+        
+        Returns:
+            Config filename (e.g., "hr_chatbot_config.yaml") or None if no config file
+        """
+        return None
+    
+    @classmethod
+    def _get_prompts_filename(cls) -> Optional[str]:
+        """
+        Get the prompts YAML filename for this chatbot type.
+        Override in subclasses to specify a custom prompts file.
+        
+        Returns:
+            Prompts filename (e.g., "hr_chatbot_prompts.yaml") or None to use default_prompts.yaml
+        """
+        return None
+    
+    def _create_memory_config(self, config_manager: ChatbotConfigManager) -> MemoryConfig:
+        """
+        Create memory configuration from config manager.
+        
+        Args:
+            config_manager: Config manager instance
+        
+        Returns:
+            MemoryConfig instance
+        """
+        # Get memory config from YAML
+        memory_config_dict = config_manager.get_nested_dict(ConfigKeys.MEMORY, {})
+        
+        if memory_config_dict:
+            # Create MemoryConfig from YAML
+            strategy_str = memory_config_dict.get("strategy", "none")
+            try:
+                strategy = MemoryStrategy(strategy_str)
+            except ValueError:
+                strategy = MemoryStrategy.NONE
+            
+            memory_config = MemoryConfig(
+                strategy=strategy,
+                trim_keep_messages=memory_config_dict.get("trim_keep_messages", 10),
+                summarize_threshold=memory_config_dict.get("summarize_threshold", 20),
+                summarize_model=memory_config_dict.get("summarize_model", None)
+            )
+            
+            # Apply settings overrides
+            from app.core.memory_config import apply_settings_to_memory_config
+            memory_config = apply_settings_to_memory_config(memory_config)
+            return memory_config
+        else:
+            # Fallback to generic default
+            return get_memory_config(self.chatbot_type)
+    
     def __init__(
         self,
         model_name: Optional[str] = None,
@@ -51,44 +211,101 @@ class ChatbotAgent(ABC):
         max_tokens: Optional[int] = None,
         tools: Optional[List[BaseTool]] = None,
         system_prompt: Optional[str] = None,
-        verbose: bool = False,
+        verbose: Optional[bool] = None,
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        memory_config: Optional[MemoryConfig] = None,
-        chatbot_type: str = "default"
+        memory_config: Optional[MemoryConfig] = None
     ):
         """
         Initialize chatbot agent.
         
         Args:
-            model_name: Name of the LLM model to use (default: from settings)
-            temperature: Temperature for the model (default: from settings)
-            max_tokens: Maximum tokens for responses (default: from settings)
-            tools: List of tools for the agent to use (default: empty list)
-            system_prompt: System prompt for the agent (optional)
-            verbose: Whether to enable verbose logging (default: False)
+            model_name: Name of the LLM model to use (default: from YAML config or settings.CHAT_MODEL)
+            temperature: Temperature for the model (default: from YAML config or settings.CHAT_MODEL_TEMPERATURE)
+            max_tokens: Maximum tokens for responses (default: from YAML config or settings.CHAT_MODEL_MAX_TOKENS)
+            tools: List of tools for the agent to use (default: from tool factory)
+            system_prompt: System prompt for the agent (default: from YAML config)
+            verbose: Whether to enable verbose logging (default: from YAML config or False)
             api_key: API key for the model provider (optional)
-            base_url: Base URL for the model API (optional, mainly for Ollama)
+            base_url: Base URL for the model API (default: from YAML config or None)
             memory_config: Memory configuration for managing chat history (optional)
-            chatbot_type: Type of chatbot for default memory config (default: "default")
         """
-        self.model_name = model_name or settings.CHAT_MODEL
-        self.temperature = temperature
-        self.max_tokens = max_tokens
-        self.tools = tools or []
-        self.system_prompt = system_prompt
-        self.verbose = verbose
-        self.api_key = api_key
-        self.base_url = base_url
+        # Initialize config manager
+        config_filename = self.__class__._get_config_filename()
+        try:
+            self._config_manager = ChatbotConfigManager(config_filename) if config_filename else None
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
+            logger.warning(f"Failed to load YAML config {config_filename}: {e}. Using defaults.")
+            self._config_manager = None
         
-        # Memory configuration
-        # Use provided chatbot_type or get from subclass implementation
-        self.chatbot_type = chatbot_type if chatbot_type else self._get_chatbot_type()
-        self.memory_config = memory_config or get_memory_config(self.chatbot_type)
+        # Get chatbot type from subclass implementation
+        self.chatbot_type = self._get_chatbot_type()
+        
+        # Initialize model parameters from config or provided values
+        self.model_name = model_name or self._get_model_name()
+        self.temperature = temperature if temperature is not None else self._get_temperature()
+        self.max_tokens = max_tokens if max_tokens is not None else self._get_max_tokens()
+        self.base_url = base_url or self._get_base_url()
+        self.verbose = verbose if verbose is not None else self._get_verbose()
+        self.api_key = api_key
+        
+        # Initialize tool factory and create tools
+        tool_factory = ChatbotToolFactory(self._config_manager)
+        self.tools = tool_factory.create_tools(self.chatbot_type, provided_tools=tools)
+        
+        # Initialize prompt builder and create system prompt
+        if system_prompt is None:
+            prompt_builder = ChatbotPromptBuilder(self._config_manager)
+            system_prompt = prompt_builder.build_system_prompt()
+        self.system_prompt = system_prompt
+        
+        # Get memory config
+        if memory_config is not None:
+            self.memory_config = memory_config
+        else:
+            self.memory_config = self._create_memory_config(
+                self._config_manager or ChatbotConfigManager()
+            )
         
         # Create the agent
         self._agent = None
         self._initialize_agent()
+    
+    def _get_model_name(self) -> str:
+        """Get model name from config or settings."""
+        if self._config_manager:
+            model_name = self._config_manager.get(ConfigKeys.MODEL_NAME)
+            if model_name:
+                return model_name
+        return settings.CHAT_MODEL
+    
+    def _get_temperature(self) -> float:
+        """Get temperature from config or settings."""
+        if self._config_manager:
+            temp = self._config_manager.get(ConfigKeys.MODEL_TEMPERATURE)
+            if temp is not None:
+                return float(temp)
+        return settings.CHAT_MODEL_TEMPERATURE
+    
+    def _get_max_tokens(self) -> int:
+        """Get max tokens from config or settings."""
+        if self._config_manager:
+            max_tok = self._config_manager.get(ConfigKeys.MODEL_MAX_TOKENS)
+            if max_tok is not None:
+                return int(max_tok)
+        return settings.CHAT_MODEL_MAX_TOKENS
+    
+    def _get_base_url(self) -> Optional[str]:
+        """Get base URL from config."""
+        if self._config_manager:
+            return self._config_manager.get(ConfigKeys.MODEL_BASE_URL)
+        return None
+    
+    def _get_verbose(self) -> bool:
+        """Get verbose flag from config or default."""
+        if self._config_manager:
+            return self._config_manager.get(ConfigKeys.VERBOSE, False)
+        return False
     
     def _initialize_agent(self) -> None:
         """Initialize the LangChain agent with checkpointer and memory management."""
@@ -303,6 +520,55 @@ class ChatbotAgent(ABC):
         self.memory_config = memory_config
         self._initialize_agent()
         logger.info(f"Updated memory config: {memory_config.strategy.value}")
+    
+    @classmethod
+    def get_from_pool(cls):
+        """
+        Get a chatbot instance from the agent pool.
+        
+        Generic method that works for any chatbot subclass.
+        Uses the agent pool for efficient resource usage across multiple requests.
+        Thread-safe for concurrent API requests.
+        
+        The chatbot type is automatically determined from the class by creating
+        a temporary instance and calling _get_chatbot_type().
+        
+        Returns:
+            ChatbotAgent instance from agent pool
+            
+        Raises:
+            RuntimeError: If chatbot initialization fails
+        """
+        try:
+            # Get chatbot type from class by creating a temporary instance
+            temp_instance = cls._get_default_instance()
+            chatbot_type = temp_instance._get_chatbot_type()
+            
+            # Get pool size from YAML config if available
+            pool_size = 1  # Default
+            config_filename = cls._get_config_filename()
+            if config_filename:
+                try:
+                    config_manager = ChatbotConfigManager(config_filename)
+                    pool_size = config_manager.get(ConfigKeys.AGENT_POOL_SIZE, 1)
+                except (FileNotFoundError, ValueError, RuntimeError):
+                    # If config loading fails, use default
+                    pass
+            
+            # Get agent pool for this chatbot type
+            # The pool will create instances using the factory if needed
+            agent_pool = get_agent_pool(
+                chatbot_type=chatbot_type,
+                agent_factory=cls._get_default_instance,
+                pool_size=pool_size
+            )
+            
+            # Get agent from pool
+            chatbot = agent_pool.get_agent()
+            return chatbot
+        except Exception as e:
+            logger.error(f"Failed to get chatbot from pool: {e}", exc_info=True)
+            raise RuntimeError(f"Failed to get chatbot from pool: {str(e)}") from e
 
 
 # Export for convenience
