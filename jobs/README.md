@@ -2,20 +2,20 @@
 
 This directory contains CLI jobs for managing the RAG chatbot system.
 
-## HR Vector Store Creation
+## Vector Store Creation
 
-The `create_hr_vectorstore.py` script creates and populates a ChromaDB vector store for the HR chatbot by loading PDF documents, splitting them into chunks, and generating embeddings.
+The `create_vectorstore.py` script creates and populates a ChromaDB vector store for any chatbot type by loading PDF documents, splitting them into chunks, and generating embeddings. It uses the chatbot's configuration file (`{chatbot_type}_chatbot_config.yaml`) to determine settings.
 
 ### Quick Start
 
-**Using the shell script (recommended):**
+**For HR chatbot:**
 ```bash
-./jobs/create_hr_vectorstore.sh
+python jobs/create_vectorstore.py --chatbot-type hr --folder /path/to/pdfs
 ```
 
-**Or directly with Python:**
+**For any chatbot type:**
 ```bash
-python jobs/create_hr_vectorstore.py
+python jobs/create_vectorstore.py --chatbot-type <chatbot_type> --folder /path/to/pdfs
 ```
 
 ### Prerequisites
@@ -40,11 +40,12 @@ python jobs/create_hr_vectorstore.py
 
 | Option | Description | Default |
 |--------|-------------|---------|
+| `--chatbot-type` | **Required.** Type of chatbot (e.g., 'hr', 'support', 'default') | None (required) |
 | `--folder` | Path to folder containing PDF files | `/Users/kanavkalra/Data/genAI/projects/policies` |
-| `--persist-dir` | Directory where ChromaDB persists data | `./chroma_db/hr_chatbot` |
-| `--collection-name` | ChromaDB collection name | `hr_chatbot` |
-| `--embedding-provider` | Embedding provider: `openai` or `google` | `google` |
-| `--embedding-model` | Embedding model name (optional, uses provider default) | Provider default |
+| `--persist-dir` | Override persist directory | From `{chatbot_type}_chatbot_config.yaml` |
+| `--collection-name` | Override collection name | From `{chatbot_type}_chatbot_config.yaml` |
+| `--embedding-provider` | Override embedding provider: `openai`, `google`, or `auto` | From `{chatbot_type}_chatbot_config.yaml` |
+| `--embedding-model` | Override embedding model name | From `{chatbot_type}_chatbot_config.yaml` |
 | `--api-key` | API key (optional, uses env vars if not provided) | From env vars |
 | `--chunk-size` | Maximum chunk size in characters | `1000` |
 | `--chunk-overlap` | Overlap between chunks in characters | `200` |
@@ -53,44 +54,45 @@ python jobs/create_hr_vectorstore.py
 
 ### Usage Examples
 
-#### 1. Basic Run (with defaults)
-Uses Gemini embeddings, default PDF folder, and default settings:
+#### 1. Basic Run for HR Chatbot
+Uses configuration from `hr_chatbot_config.yaml`:
 ```bash
-python jobs/create_hr_vectorstore.py
+python jobs/create_vectorstore.py --chatbot-type hr --folder /path/to/pdfs
 ```
 
 #### 2. Custom PDF Folder
 ```bash
-python jobs/create_hr_vectorstore.py --folder /path/to/your/pdfs
+python jobs/create_vectorstore.py --chatbot-type hr --folder /path/to/your/pdfs
 ```
 
-#### 3. Use OpenAI Embeddings
+#### 3. Override Embedding Provider
 ```bash
-python jobs/create_hr_vectorstore.py --embedding-provider openai
+python jobs/create_vectorstore.py --chatbot-type hr --embedding-provider openai
 ```
 
 #### 4. Specify Custom Embedding Model
 ```bash
 # Google/Gemini
-python jobs/create_hr_vectorstore.py --embedding-model models/text-embedding-004
+python jobs/create_vectorstore.py --chatbot-type hr --embedding-model models/text-embedding-004
 
 # OpenAI
-python jobs/create_hr_vectorstore.py --embedding-provider openai --embedding-model text-embedding-3-large
+python jobs/create_vectorstore.py --chatbot-type hr --embedding-provider openai --embedding-model text-embedding-3-large
 ```
 
 #### 5. Clear and Rebuild Existing Collection
 ```bash
-python jobs/create_hr_vectorstore.py --clear-existing
+python jobs/create_vectorstore.py --chatbot-type hr --clear-existing
 ```
 
 #### 6. Custom Chunk Settings
 ```bash
-python jobs/create_hr_vectorstore.py --chunk-size 1500 --chunk-overlap 300
+python jobs/create_vectorstore.py --chatbot-type hr --chunk-size 1500 --chunk-overlap 300
 ```
 
 #### 7. Complete Example
 ```bash
-python jobs/create_hr_vectorstore.py \
+python jobs/create_vectorstore.py \
+  --chatbot-type hr \
   --folder /path/to/pdfs \
   --persist-dir ./chroma_db/hr_chatbot \
   --collection-name hr_chatbot \
@@ -99,6 +101,11 @@ python jobs/create_hr_vectorstore.py \
   --chunk-size 1000 \
   --chunk-overlap 200 \
   --clear-existing
+```
+
+#### 8. For Different Chatbot Type
+```bash
+python jobs/create_vectorstore.py --chatbot-type support --folder /path/to/pdfs
 ```
 
 ### What the Script Does
@@ -138,12 +145,12 @@ The script will:
 - Use `--clear-existing` to rebuild from scratch
 - Or the script will append to existing collection (may create duplicates)
 
-### Integration with HR Chatbot
+### Integration with Chatbots
 
-The vector store created by this script is automatically loaded by the HR chatbot service when it starts. The chatbot uses the vector store configuration from `app/core/config.py`:
-- `HR_CHROMA_PERSIST_DIR`: Default `./chroma_db/hr_chatbot`
-- `HR_CHROMA_COLLECTION_NAME`: Default `hr_chatbot`
-- `HR_EMBEDDING_PROVIDER`: Default `auto` (auto-detects based on chat model)
+The vector store created by this script is automatically loaded by the chatbot service when it starts. The chatbot uses the vector store configuration from `{chatbot_type}_chatbot_config.yaml`:
+- `vector_store.persist_dir`: Persistence directory for ChromaDB
+- `vector_store.collection_name`: ChromaDB collection name
+- `vector_store.embedding_provider`: Embedding provider (`auto`, `openai`, or `google`)
 
 Make sure the embedding provider used to create the vector store matches what the chatbot expects, or the chatbot won't be able to load it correctly.
 
