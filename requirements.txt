@@ -15,6 +15,7 @@ langchain-text-splitters==1.1.0
 langchain-openai
 langchain-anthropic
 langchain-ollama
+langchain-google-genai
 langsmith
 langgraph
 langgraph-checkpoint-redis

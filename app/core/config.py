@@ -54,13 +54,16 @@ class Settings:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     
     # LLM Model Configuration
-    # Supported models: "gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "claude-3-opus", "claude-3-sonnet", "gpt-4o"
+    # Supported models: "gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o", "claude-3-opus", "claude-3-sonnet", "gemini-pro", "gemini-1.5-flash", "gemini-1.5-pro"
     CHAT_MODEL: str = os.getenv("CHAT_MODEL", "gpt-3.5-turbo")
     CHAT_MODEL_TEMPERATURE: float = float(os.getenv("CHAT_MODEL_TEMPERATURE", "0.7"))
     CHAT_MODEL_MAX_TOKENS: int = int(os.getenv("CHAT_MODEL_MAX_TOKENS", "2000"))
     
     # Anthropic Configuration (optional)
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
+    
+    # Google Gemini Configuration (optional)
+    GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
     
     # Ollama Configuration (optional)
     OLLAMA_BASE_URL: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")

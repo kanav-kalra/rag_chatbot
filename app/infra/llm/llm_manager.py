@@ -29,6 +29,13 @@ except ImportError:
     OLLAMA_AVAILABLE = False
     ChatOllama = None
 
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    GOOGLE_AVAILABLE = True
+except ImportError:
+    GOOGLE_AVAILABLE = False
+    ChatGoogleGenerativeAI = None
+
 from app.core.config import settings
 from app.core.logging import logger
 
@@ -135,6 +142,30 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         "default_max_tokens": 2000,
         "requires_package": "langchain-ollama",
     },
+    "gemini-pro": {
+        "provider": "google",
+        "model_name": "gemini-pro",
+        "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
+        "default_temperature": 0.7,
+        "default_max_tokens": 2000,
+        "requires_package": "langchain-google-genai",
+    },
+    "gemini-1.5-flash": {
+        "provider": "google",
+        "model_name": "gemini-1.5-flash",
+        "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
+        "default_temperature": 0.7,
+        "default_max_tokens": 2000,
+        "requires_package": "langchain-google-genai",
+    },
+    "gemini-1.5-pro": {
+        "provider": "google",
+        "model_name": "gemini-1.5-pro",
+        "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
+        "default_temperature": 0.7,
+        "default_max_tokens": 2000,
+        "requires_package": "langchain-google-genai",
+    },
 }
 
 
@@ -220,6 +251,12 @@ class LLMManager:
                 raise ValueError(
                     "Anthropic API key is required. Set ANTHROPIC_API_KEY environment variable."
                 )
+        elif provider == "google":
+            api_key = api_key or settings.GOOGLE_API_KEY
+            if not api_key:
+                raise ValueError(
+                    "Google API key is required. Set GOOGLE_API_KEY environment variable."
+                )
         elif provider == "ollama":
             # Ollama doesn't need API key, but may need base_url
             if base_url is None:
@@ -247,6 +284,9 @@ class LLMManager:
         elif provider == "anthropic":
             model_kwargs["anthropic_api_key"] = api_key
             model_kwargs["max_tokens"] = max_toks
+        elif provider == "google":
+            model_kwargs["google_api_key"] = api_key
+            model_kwargs["max_output_tokens"] = max_toks
         elif provider == "ollama":
             model_kwargs["base_url"] = base_url
             if max_toks:
