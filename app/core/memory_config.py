@@ -53,12 +53,6 @@ class MemoryConfig:
 # These can be overridden via environment variables or API parameters
 # Default summarize_model uses a model with higher context window for better summarization
 DEFAULT_MEMORY_CONFIGS = {
-    "hr": MemoryConfig(
-        strategy=MemoryStrategy.TRIM,  # Can be overridden via settings or API
-        trim_keep_messages=1,
-        summarize_threshold=2,
-        summarize_model="gpt-3.5-turbo-16k",  # Use high-context model for summarization
-    ),
     "default": MemoryConfig(
         strategy=MemoryStrategy.TRIM,
         trim_keep_messages=1,
@@ -73,7 +67,7 @@ def get_memory_config_from_settings(chatbot_type: str = "default") -> MemoryConf
     Get memory configuration from settings (environment variables).
     
     Args:
-        chatbot_type: Type of chatbot (e.g., "hr", "default")
+        chatbot_type: Type of chatbot (e.g., "default")
         
     Returns:
         MemoryConfig instance with values from settings
@@ -84,23 +78,8 @@ def get_memory_config_from_settings(chatbot_type: str = "default") -> MemoryConf
     # Get default config
     config = DEFAULT_MEMORY_CONFIGS.get(chatbot_type, DEFAULT_MEMORY_CONFIGS["default"])
     
-    # Override with settings if available
-    strategy_str = getattr(settings, 'DEFAULT_MEMORY_STRATEGY', None)
-    if strategy_str:
-        try:
-            config.strategy = MemoryStrategy(strategy_str)
-        except ValueError:
-            pass  # Keep default if invalid
-    
-    config.trim_keep_messages = getattr(settings, 'MEMORY_TRIM_KEEP_MESSAGES', config.trim_keep_messages)
-    config.summarize_threshold = getattr(settings, 'MEMORY_SUMMARIZE_THRESHOLD', config.summarize_threshold)
-    
-    # Override summarize_model from settings if provided
-    summarize_model = getattr(settings, 'MEMORY_SUMMARIZE_MODEL', None)
-    if summarize_model:
-        config.summarize_model = summarize_model
-    
-    return config
+    # Apply settings overrides using generic function
+    return apply_settings_to_memory_config(config)
 
 
 def get_memory_config(chatbot_type: str = "default", use_settings: bool = True) -> MemoryConfig:
@@ -108,7 +87,7 @@ def get_memory_config(chatbot_type: str = "default", use_settings: bool = True) 
     Get memory configuration for a chatbot type.
     
     Args:
-        chatbot_type: Type of chatbot (e.g., "hr", "default")
+        chatbot_type: Type of chatbot (e.g., "default")
         use_settings: Whether to override with settings (default: True)
         
     Returns:
@@ -117,4 +96,42 @@ def get_memory_config(chatbot_type: str = "default", use_settings: bool = True) 
     if use_settings:
         return get_memory_config_from_settings(chatbot_type)
     return DEFAULT_MEMORY_CONFIGS.get(chatbot_type, DEFAULT_MEMORY_CONFIGS["default"])
+
+
+def apply_settings_to_memory_config(memory_config: MemoryConfig) -> MemoryConfig:
+    """
+    Apply settings overrides to a memory configuration.
+    
+    Generic function that applies environment variable settings to any memory config.
+    No chatbot-specific logic - works with any MemoryConfig instance.
+    
+    Args:
+        memory_config: MemoryConfig instance to apply settings to (will be modified)
+        
+    Returns:
+        MemoryConfig instance with settings applied (same instance, modified in place)
+    """
+    from app.core.config import settings
+    
+    # Override with settings if available
+    strategy_str = getattr(settings, 'DEFAULT_MEMORY_STRATEGY', None)
+    if strategy_str:
+        try:
+            memory_config.strategy = MemoryStrategy(strategy_str)
+        except ValueError:
+            pass  # Keep default if invalid
+    
+    memory_config.trim_keep_messages = getattr(
+        settings, 'MEMORY_TRIM_KEEP_MESSAGES', memory_config.trim_keep_messages
+    )
+    memory_config.summarize_threshold = getattr(
+        settings, 'MEMORY_SUMMARIZE_THRESHOLD', memory_config.summarize_threshold
+    )
+    
+    # Override summarize_model from settings if provided
+    summarize_model = getattr(settings, 'MEMORY_SUMMARIZE_MODEL', None)
+    if summarize_model:
+        memory_config.summarize_model = summarize_model
+    
+    return memory_config
 

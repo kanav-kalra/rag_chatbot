@@ -1,0 +1,46 @@
+# HR Chatbot Configuration
+# This file contains all configuration for the HR chatbot
+# Values can be overridden via environment variables (see variable names in comments)
+
+# Model Configuration
+model:
+  # Override with HR_CHAT_MODEL environment variable
+  name: "gemini-2.5-flash"  # Default to Gemini 2.5 Flash
+  # Override with HR_CHAT_MODEL_TEMPERATURE environment variable
+  temperature: 0.7
+  # Override with HR_CHAT_MODEL_MAX_TOKENS environment variable
+  max_tokens: 2000
+  base_url: null  # Optional, mainly for Ollama
+
+# Vector Store Configuration
+vector_store:
+  type: "hr"  # Default vector store type for HR
+
+# System Prompt Configuration
+# If template/agent_instructions_template are null, automatically loads from prompts_file
+# The prompts file is located at: app/services/chatbot/{prompts_file}
+system_prompt:
+  prompts_file: "hr_chatbot_prompts.yaml"  # Prompts file to load (relative to app/services/chatbot/)
+  template: null  # If null, uses system_prompt from prompts_file
+  agent_instructions_template: null  # If null, uses agent_instructions from prompts_file
+
+# Tools Configuration
+tools:
+  enable_retrieval: true  # Default: enable retrieval tool
+  additional: []  # Additional tools beyond retrieval (list of tool names/classes)
+
+# Memory Configuration
+memory:
+  strategy: "trim"  # Options: "none", "trim", "summarize", "trim_and_summarize"
+  trim_keep_messages: 1  # Keep last N messages when trimming
+  summarize_threshold: 2  # Summarize when messages exceed this count
+  summarize_model: "gpt-3.5-turbo-16k"  # Model for summarization (should have high context window)
+
+# Agent Pool Configuration
+# Override with HR_AGENT_POOL_SIZE environment variable
+agent_pool:
+  size: 1  # Default: 1 shared agent
+
+# Verbose Logging
+verbose: false
+
