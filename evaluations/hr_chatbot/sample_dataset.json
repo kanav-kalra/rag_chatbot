@@ -1,0 +1,35 @@
+[
+  {
+    "inputs": {
+      "question": "What is the notice period for grade 8 employees?"
+    },
+    "outputs": {
+      "answer": "The notice period for grade 8 employees is 30 days as per company policy."
+    }
+  },
+  {
+    "inputs": {
+      "question": "What are the leave policies for full-time employees?"
+    },
+    "outputs": {
+      "answer": "Full-time employees are entitled to 20 days of annual leave, 10 days of sick leave, and 5 days of casual leave per year."
+    }
+  },
+  {
+    "inputs": {
+      "question": "What is the process for requesting a promotion?"
+    },
+    "outputs": {
+      "answer": "Employees can request a promotion by discussing with their manager, submitting a formal application through the HR portal, and going through the performance review process."
+    }
+  },
+  {
+    "inputs": {
+      "question": "What benefits are available to employees?"
+    },
+    "outputs": {
+      "answer": "Employees are eligible for health insurance, retirement plans, professional development opportunities, and other benefits as outlined in the employee handbook."
+    }
+  }
+]
+
