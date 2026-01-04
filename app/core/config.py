@@ -54,7 +54,7 @@ class Settings:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     
     # LLM Model Configuration
-    # Supported models: "gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o", "claude-3-opus", "claude-3-sonnet", "gemini-pro", "gemini-1.5-flash", "gemini-1.5-pro"
+    # Supported models: "gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o", "claude-3-opus", "claude-3-sonnet", "gemini-pro", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"
     CHAT_MODEL: str = os.getenv("CHAT_MODEL", "gpt-3.5-turbo")
     CHAT_MODEL_TEMPERATURE: float = float(os.getenv("CHAT_MODEL_TEMPERATURE", "0.7"))
     CHAT_MODEL_MAX_TOKENS: int = int(os.getenv("CHAT_MODEL_MAX_TOKENS", "2000"))
@@ -88,9 +88,13 @@ class Settings:
     MEMORY_SUMMARIZE_THRESHOLD: int = int(os.getenv("MEMORY_SUMMARIZE_THRESHOLD", "20"))  # Summarize when messages exceed this
     MEMORY_SUMMARIZE_MODEL: str = os.getenv("MEMORY_SUMMARIZE_MODEL", "gpt-3.5-turbo-16k")  # Model for summarization (should have high context window)
     
-    # HR Chatbot ChromaDB Configuration
+    # HR Chatbot Configuration
+    HR_CHAT_MODEL: str = os.getenv("HR_CHAT_MODEL", "gemini-2.5-flash")  # Default to Gemini 2.5 Flash for HR chatbot
     HR_CHROMA_PERSIST_DIR: str = os.getenv("HR_CHROMA_PERSIST_DIR", "./chroma_db/hr_chatbot")
     HR_CHROMA_COLLECTION_NAME: str = os.getenv("HR_CHROMA_COLLECTION_NAME", "hr_chatbot")
+    # Embedding configuration: "openai" or "google" (default: auto-detect based on HR_CHAT_MODEL)
+    HR_EMBEDDING_PROVIDER: str = os.getenv("HR_EMBEDDING_PROVIDER", "auto")  # "auto", "openai", or "google"
+    HR_EMBEDDING_MODEL: str = os.getenv("HR_EMBEDDING_MODEL", "")  # Empty = use provider default
     
     # LangSmith Configuration (for observability and tracing)
     # Note: Both LANGSMITH_API_KEY and LANGCHAIN_API_KEY are supported

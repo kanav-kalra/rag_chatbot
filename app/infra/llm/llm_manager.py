@@ -166,6 +166,30 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
         "default_max_tokens": 2000,
         "requires_package": "langchain-google-genai",
     },
+    "gemini-2.5-flash": {
+        "provider": "google",
+        "model_name": "gemini-2.5-flash",
+        "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
+        "default_temperature": 0.7,
+        "default_max_tokens": 2000,
+        "requires_package": "langchain-google-genai",
+    },
+    "gemini-2.5-flash-lite": {
+        "provider": "google",
+        "model_name": "gemini-2.5-flash-lite",
+        "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
+        "default_temperature": 0.7,
+        "default_max_tokens": 2000,
+        "requires_package": "langchain-google-genai",
+    },
+    "gemini-2.5-pro": {
+        "provider": "google",
+        "model_name": "gemini-2.5-pro",
+        "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
+        "default_temperature": 0.7,
+        "default_max_tokens": 2000,
+        "requires_package": "langchain-google-genai",
+    },
 }
 
 

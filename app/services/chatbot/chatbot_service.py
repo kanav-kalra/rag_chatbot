@@ -182,6 +182,13 @@ class ChatbotAgent(ABC):
     def _extract_response(self, result: Any) -> str:
         """
         Extract response text from agent result.
+        Compatible with both OpenAI and Gemini (Google) model response formats.
+        
+        Handles:
+        - OpenAI: String content in messages
+        - Gemini: List of content blocks like [{'type': 'text', 'text': '...'}]
+        - LangChain message objects with content attribute
+        - Dictionary representations of messages
         
         Args:
             result: Agent invocation result
@@ -189,15 +196,79 @@ class ChatbotAgent(ABC):
         Returns:
             Response text as string
         """
+        def extract_text_from_content(content: Any) -> str:
+            """
+            Extract text from content, handling various formats from different LLM providers.
+            
+            Formats handled:
+            - String (OpenAI, most providers)
+            - List of strings (some providers)
+            - List of content blocks (Gemini): [{'type': 'text', 'text': '...'}]
+            - Other types: converted to string
+            """
+            if isinstance(content, str):
+                # OpenAI and most providers return string directly
+                return content
+            elif isinstance(content, list):
+                # Handle list of content blocks (Gemini format: [{'type': 'text', 'text': '...'}])
+                # or list of strings
+                text_parts = []
+                for block in content:
+                    if isinstance(block, dict):
+                        # Gemini format: {'type': 'text', 'text': '...'}
+                        if block.get('type') == 'text' and 'text' in block:
+                            text_parts.append(str(block['text']))
+                        # Fallback: any dict with 'text' key
+                        elif 'text' in block:
+                            text_parts.append(str(block['text']))
+                        # Fallback: any dict with 'content' key
+                        elif 'content' in block:
+                            text_parts.append(str(block['content']))
+                    elif isinstance(block, str):
+                        # List of strings
+                        text_parts.append(block)
+                    else:
+                        # Unknown format, convert to string
+                        text_parts.append(str(block))
+                return ''.join(text_parts) if text_parts else str(content)
+            else:
+                # Fallback: convert to string
+                return str(content)
+        
+        # Handle LangChain message objects (from langchain_core.messages)
+        try:
+            from langchain_core.messages import BaseMessage
+            if isinstance(result, BaseMessage):
+                return extract_text_from_content(result.content)
+        except (ImportError, AttributeError):
+            pass
+        
+        # Handle dictionary results (most common format from agent.invoke())
         if isinstance(result, dict):
             # Try different possible response formats
             if "messages" in result and result["messages"]:
                 last_message = result["messages"][-1]
+                
+                # Handle LangChain message objects
                 if hasattr(last_message, 'content'):
-                    return last_message.content
-                elif isinstance(last_message, dict) and "content" in last_message:
-                    return last_message["content"]
-            return result.get("output", str(result))
+                    return extract_text_from_content(last_message.content)
+                # Handle dictionary representation of messages
+                elif isinstance(last_message, dict):
+                    if "content" in last_message:
+                        return extract_text_from_content(last_message["content"])
+                    # Fallback: try to find any text-like field
+                    for key in ["text", "message", "output"]:
+                        if key in last_message:
+                            return extract_text_from_content(last_message[key])
+            
+            # Try direct output field
+            if "output" in result:
+                return extract_text_from_content(result["output"])
+            
+            # Fallback: convert entire dict to string
+            return str(result)
+        
+        # Fallback: convert to string
         return str(result)
     
     def update_tools(self, tools: List[BaseTool]) -> None:

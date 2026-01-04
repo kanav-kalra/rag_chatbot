@@ -25,3 +25,5 @@ redis
 pypdf==6.5.0
 python-dotenv
 chromadb
+typing-extensions
+starlette

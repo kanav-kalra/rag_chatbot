@@ -12,46 +12,114 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
+from langchain_core.embeddings import Embeddings
 
 from app.core.config import settings
 from app.core.logging import logger
 from ingestion.loader import load_pdf_documents
 from ingestion.chunker import split_documents
 
+# Optional imports for embeddings
+try:
+    from langchain_openai import OpenAIEmbeddings
+    OPENAI_EMBEDDINGS_AVAILABLE = True
+except ImportError:
+    OPENAI_EMBEDDINGS_AVAILABLE = False
+    OpenAIEmbeddings = None
+
+try:
+    from langchain_google_genai import GoogleGenerativeAIEmbeddings
+    GOOGLE_EMBEDDINGS_AVAILABLE = True
+except ImportError:
+    GOOGLE_EMBEDDINGS_AVAILABLE = False
+    GoogleGenerativeAIEmbeddings = None
+
+
+def create_embeddings(
+    provider: str = "google",
+    embedding_model: Optional[str] = None,
+    api_key: Optional[str] = None
+) -> Embeddings:
+    """
+    Create embeddings instance based on provider.
+    
+    Args:
+        provider: Embedding provider ("openai" or "google", default: "google")
+        embedding_model: Embedding model name (default: provider-specific default)
+        api_key: API key for the provider (if not provided, uses env vars)
+        
+    Returns:
+        Embeddings instance
+        
+    Raises:
+        ValueError: If provider is not supported or required package is missing
+    """
+    if provider == "openai":
+        if not OPENAI_EMBEDDINGS_AVAILABLE:
+            raise ValueError(
+                "OpenAI embeddings require 'langchain-openai' package. "
+                "Please install it using: pip install langchain-openai"
+            )
+        model = embedding_model or "text-embedding-3-small"
+        api_key = api_key or (settings.OPENAI_API_KEY if settings.OPENAI_API_KEY else None)
+        embeddings_kwargs = {}
+        if api_key:
+            embeddings_kwargs["openai_api_key"] = api_key
+        return OpenAIEmbeddings(model=model, **embeddings_kwargs)
+    
+    elif provider == "google":
+        if not GOOGLE_EMBEDDINGS_AVAILABLE:
+            raise ValueError(
+                "Google embeddings require 'langchain-google-genai' package. "
+                "Please install it using: pip install langchain-google-genai"
+            )
+        api_key = api_key or (settings.GOOGLE_API_KEY if settings.GOOGLE_API_KEY else None)
+        if not api_key:
+            raise ValueError(
+                "Google API key is required for Google embeddings. "
+                "Set GOOGLE_API_KEY environment variable."
+            )
+        # Google embeddings model parameter is required
+        # Default to "models/embedding-001" or use newer "models/text-embedding-004" if available
+        model = embedding_model or "models/embedding-001"
+        embeddings_kwargs = {
+            "google_api_key": api_key,
+            "model": model
+        }
+        return GoogleGenerativeAIEmbeddings(**embeddings_kwargs)
+    
+    else:
+        raise ValueError(f"Unsupported embedding provider: {provider}. Supported: 'openai', 'google'")
+
 
 def create_chroma_vector_store(
     persist_directory: str,
     collection_name: str = "hr_chatbot",
+    embedding_provider: str = "google",
     embedding_model: Optional[str] = None,
-    openai_api_key: Optional[str] = None
+    api_key: Optional[str] = None
 ) -> Chroma:
     """
-    Create or load a ChromaDB vector store with OpenAIEmbeddings.
+    Create or load a ChromaDB vector store with embeddings.
     If the persist_directory exists, it will load existing data; otherwise creates new.
     
     Args:
         persist_directory: Directory path where ChromaDB will persist the data
         collection_name: Name of the ChromaDB collection (default: "hr_chatbot")
-        embedding_model: OpenAI embedding model name (default: "text-embedding-3-small")
-        openai_api_key: OpenAI API key (if not provided, will use OPENAI_API_KEY env var)
+        embedding_provider: Embedding provider ("openai" or "google", default: "google")
+        embedding_model: Embedding model name (default: provider-specific default)
+        api_key: API key for the embedding provider (if not provided, will use env vars)
         
     Returns:
-        Chroma vector store instance configured with OpenAIEmbeddings
+        Chroma vector store instance configured with embeddings
     """
     try:
-        embedding_model = embedding_model or "text-embedding-3-small"
-        
-        # Initialize OpenAI Embeddings
-        api_key = openai_api_key or (settings.OPENAI_API_KEY if settings.OPENAI_API_KEY else None)
-        embeddings_kwargs = {}
-        if api_key:
-            embeddings_kwargs["openai_api_key"] = api_key
-            
-        embeddings = OpenAIEmbeddings(
-            model=embedding_model,
-            **embeddings_kwargs
+        # Create embeddings based on provider
+        embeddings = create_embeddings(
+            provider=embedding_provider,
+            embedding_model=embedding_model,
+            api_key=api_key
         )
         
         # Create or load ChromaDB vector store
@@ -63,7 +131,8 @@ def create_chroma_vector_store(
         )
         
         logger.info(
-            f"Created/loaded ChromaDB vector store with embedding model: {embedding_model}, "
+            f"Created/loaded ChromaDB vector store with embedding provider: {embedding_provider}, "
+            f"model: {embedding_model or 'default'}, "
             f"collection: {collection_name}, persist_dir: {persist_directory}"
         )
         return vector_store
@@ -76,8 +145,9 @@ def create_chroma_vector_store(
 def load_hr_chroma_vector_store(
     persist_directory: str = "./chroma_db/hr_chatbot",
     collection_name: str = "hr_chatbot",
+    embedding_provider: str = "google",
     embedding_model: Optional[str] = None,
-    openai_api_key: Optional[str] = None
+    api_key: Optional[str] = None
 ) -> Chroma:
     """
     Load an existing HR ChromaDB vector store.
@@ -86,8 +156,9 @@ def load_hr_chroma_vector_store(
     Args:
         persist_directory: Directory path where ChromaDB persists the data
         collection_name: Name of the ChromaDB collection (default: "hr_chatbot")
-        embedding_model: OpenAI embedding model name (default: "text-embedding-3-small")
-        openai_api_key: OpenAI API key (if not provided, will use OPENAI_API_KEY env var)
+        embedding_provider: Embedding provider ("openai" or "google", default: "google")
+        embedding_model: Embedding model name (default: provider-specific default)
+        api_key: API key for the embedding provider (if not provided, will use env vars)
         
     Returns:
         Chroma vector store instance
@@ -106,8 +177,9 @@ def load_hr_chroma_vector_store(
     vector_store = create_chroma_vector_store(
         persist_directory=persist_directory,
         collection_name=collection_name,
+        embedding_provider=embedding_provider,
         embedding_model=embedding_model,
-        openai_api_key=openai_api_key
+        api_key=api_key
     )
     
     # Verify the collection has data
@@ -118,7 +190,10 @@ def load_hr_chroma_vector_store(
                 f"ChromaDB collection '{collection_name}' exists but is empty. "
                 f"Please run the create_hr_vectorstore job to populate it."
             )
-        logger.info(f"Loaded HR ChromaDB vector store with {count} document chunks")
+        logger.info(
+            f"Loaded HR ChromaDB vector store with {count} document chunks "
+            f"(embedding provider: {embedding_provider})"
+        )
     except Exception as e:
         logger.warning(f"Could not verify collection count: {e}")
     
@@ -132,8 +207,9 @@ def build_hr_vectorstore_from_pdfs(
     recursive: bool = True,
     chunk_size: int = 1000,
     chunk_overlap: int = 200,
+    embedding_provider: str = "google",
     embedding_model: Optional[str] = None,
-    openai_api_key: Optional[str] = None,
+    api_key: Optional[str] = None,
     clear_existing: bool = False
 ) -> Chroma:
     """
@@ -146,8 +222,9 @@ def build_hr_vectorstore_from_pdfs(
         recursive: If True, search for PDFs recursively in subdirectories
         chunk_size: Maximum size of chunks to return (in characters)
         chunk_overlap: Overlap in characters between chunks
-        embedding_model: OpenAI embedding model name (default: "text-embedding-3-small")
-        openai_api_key: OpenAI API key (if not provided, will use OPENAI_API_KEY env var)
+        embedding_provider: Embedding provider ("openai" or "google", default: "google")
+        embedding_model: Embedding model name (default: provider-specific default)
+        api_key: API key for the embedding provider (if not provided, will use env vars)
         clear_existing: If True, delete existing collection before adding documents
         
     Returns:
@@ -158,8 +235,9 @@ def build_hr_vectorstore_from_pdfs(
         vector_store = create_chroma_vector_store(
             persist_directory=persist_directory,
             collection_name=collection_name,
+            embedding_provider=embedding_provider,
             embedding_model=embedding_model,
-            openai_api_key=openai_api_key
+            api_key=api_key
         )
         
         # Clear existing collection if requested
@@ -170,8 +248,9 @@ def build_hr_vectorstore_from_pdfs(
             vector_store = create_chroma_vector_store(
                 persist_directory=persist_directory,
                 collection_name=collection_name,
+                embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
-                openai_api_key=openai_api_key
+                api_key=api_key
             )
         
         # Load documents from PDFs
@@ -245,10 +324,23 @@ def main():
         help="Chunk overlap for text splitting"
     )
     parser.add_argument(
+        "--embedding-provider",
+        type=str,
+        choices=["openai", "google"],
+        default="google",
+        help="Embedding provider: 'openai' or 'google' (default: 'google')"
+    )
+    parser.add_argument(
         "--embedding-model",
         type=str,
-        default="text-embedding-3-small",
-        help="OpenAI embedding model name"
+        default=None,
+        help="Embedding model name (default: provider-specific default)"
+    )
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default=None,
+        help="API key for the embedding provider (if not provided, uses env vars)"
     )
     parser.add_argument(
         "--clear-existing",
@@ -271,6 +363,9 @@ def main():
         logger.info(f"Starting HR vector store creation from: {args.folder}")
         logger.info(f"Persist directory: {args.persist_dir}")
         logger.info(f"Collection name: {args.collection_name}")
+        logger.info(f"Embedding provider: {args.embedding_provider}")
+        if args.embedding_model:
+            logger.info(f"Embedding model: {args.embedding_model}")
         
         vector_store = build_hr_vectorstore_from_pdfs(
             folder_path=args.folder,
@@ -279,7 +374,9 @@ def main():
             recursive=not args.no_recursive,
             chunk_size=args.chunk_size,
             chunk_overlap=args.chunk_overlap,
+            embedding_provider=args.embedding_provider,
             embedding_model=args.embedding_model,
+            api_key=args.api_key,
             clear_existing=args.clear_existing
         )
         

@@ -48,13 +48,16 @@ class HRChatbot(ChatbotAgent):
         Initialize HR chatbot.
         
         Args:
-            model_name: Name of the LLM model to use (default: from settings)
+            model_name: Name of the LLM model to use (default: from settings.HR_CHAT_MODEL, which defaults to gemini-1.5-flash)
             temperature: Temperature for the model (default: from settings)
             max_tokens: Maximum tokens for responses (default: from settings)
             tools: List of additional tools for the agent (default: includes retrieval tool)
             verbose: Whether to enable verbose logging (default: False)
             base_url: Base URL for the model API (optional, mainly for Ollama)
         """
+        # Use HR-specific model from settings if not provided
+        if model_name is None:
+            model_name = settings.HR_CHAT_MODEL
         # Get vector store for HR chatbot and create retrieval service
         vector_store = get_vector_store("hr")
         retrieval_service = RetrievalService(vector_store)
