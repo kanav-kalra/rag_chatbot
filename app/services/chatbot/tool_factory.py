@@ -88,7 +88,9 @@ class ChatbotToolFactory:
             if not vector_store_type:
                 vector_store_type = chatbot_type
             
-            vector_store = get_vector_store(vector_store_type)
+            # Pass config_manager to get_vector_store so it can read vector store config
+            # from the same config file that the chatbot uses
+            vector_store = get_vector_store(vector_store_type, config_manager=self.config_manager)
             retrieval_service = RetrievalService(vector_store)
             return retrieval_service.create_tool()
         except Exception as e:
