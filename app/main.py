@@ -54,8 +54,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Checkpointer initialization failed: {e}. Continuing with fallback.")
     
-    # Note: HR chatbot vector store is now loaded on-demand from ChromaDB
-    # Run 'python jobs/create_hr_vectorstore.py' to create the vector store
+    # Note: Chatbot vector stores are now loaded on-demand from ChromaDB
+    # Run 'python jobs/create_vectorstore.py --chatbot-type <type>' to create a vector store
     
     yield
     

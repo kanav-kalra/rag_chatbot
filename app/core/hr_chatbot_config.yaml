@@ -15,6 +15,10 @@ model:
 # Vector Store Configuration
 vector_store:
   type: "hr"  # Default vector store type for HR
+  persist_dir: "./chroma_db/hr_chatbot"  # ChromaDB persistence directory
+  collection_name: "hr_chatbot"  # ChromaDB collection name
+  embedding_provider: "auto"  # "auto", "openai", or "google" (auto-detects based on model.name)
+  embedding_model: ""  # Empty = use provider default
 
 # System Prompt Configuration
 # If template/agent_instructions_template are null, automatically loads from prompts_file

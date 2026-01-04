@@ -24,7 +24,7 @@ The evaluation script (`evaluate_hr_chatbot.py`) evaluates the HR chatbot on fou
 
 3. **HR Vector Store**:
    - Ensure the HR vector store is created and populated
-   - Run `python jobs/create_hr_vectorstore.py` if needed
+   - Run `python jobs/create_vectorstore.py --chatbot-type hr` if needed
 
 ## Basic Usage
 
@@ -165,8 +165,8 @@ You can modify the evaluator prompts in `evaluate_hr_chatbot.py` to adjust the e
 - Create the dataset first in LangSmith UI or via the script
 
 ### "Vector store not found" Error
-- Run `python jobs/create_hr_vectorstore.py` to create the vector store
-- Check that `HR_CHROMA_PERSIST_DIR` is set correctly in settings
+- Run `python jobs/create_vectorstore.py --chatbot-type hr` to create the vector store
+- Check that the vector store configuration in `hr_chatbot_config.yaml` is correct
 
 ### "API Key not found" Error
 - Ensure `LANGSMITH_API_KEY` and `OPENAI_API_KEY` are set in `.env`

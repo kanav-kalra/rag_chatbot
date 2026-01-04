@@ -9,6 +9,6 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
 # Change to project root
 cd "$PROJECT_ROOT"
 
-# Run the Python script with all passed arguments
-python jobs/create_hr_vectorstore.py "$@"
+# Run the Python script with chatbot-type=hr and all passed arguments
+python jobs/create_vectorstore.py --chatbot-type hr "$@"
 

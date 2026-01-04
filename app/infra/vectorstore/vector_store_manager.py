@@ -26,6 +26,7 @@ from langchain_community.vectorstores import Chroma
 
 from app.core.config import settings
 from app.core.logging import logger
+from app.services.chatbot.config_manager import ChatbotConfigManager, ConfigKeys
 
 # Optional imports for embeddings
 try:
@@ -48,12 +49,19 @@ _vector_stores: Dict[str, VectorStore] = {}
 _vector_stores_lock = Lock()
 
 
-def get_vector_store_config(chatbot_type: str) -> Dict[str, str]:
+def get_vector_store_config(
+    chatbot_type: str,
+    config_manager: Optional[ChatbotConfigManager] = None
+) -> Dict[str, str]:
     """
     Get vector store configuration for a chatbot type.
     
+    If config_manager is provided, reads configuration from it (preferred method).
+    Otherwise, falls back to sensible defaults based on chatbot_type.
+    
     Args:
-        chatbot_type: Type of chatbot (e.g., "hr", "default")
+        chatbot_type: Type of chatbot (e.g., "hr", "default", "support")
+        config_manager: Optional ChatbotConfigManager instance with loaded config
         
     Returns:
         Dictionary with vector store configuration:
@@ -72,26 +80,38 @@ def get_vector_store_config(chatbot_type: str) -> Dict[str, str]:
         "embedding_model": ""
     }
     
-    # Override with chatbot-specific settings if available
-    # For HR chatbot
-    if chatbot_type == "hr":
-        config["persist_dir"] = getattr(settings, "HR_CHROMA_PERSIST_DIR", config["persist_dir"])
-        config["collection_name"] = getattr(settings, "HR_CHROMA_COLLECTION_NAME", config["collection_name"])
-        config["embedding_provider"] = getattr(settings, "HR_EMBEDDING_PROVIDER", "auto")
-        config["embedding_model"] = getattr(settings, "HR_EMBEDDING_MODEL", "")
-        
-        # Auto-detect embedding provider based on chat model if set to "auto"
-        if config["embedding_provider"] == "auto":
-            hr_chat_model = getattr(settings, "HR_CHAT_MODEL", "")
-            if hr_chat_model and hr_chat_model.startswith("gemini"):
-                config["embedding_provider"] = "google"
-            else:
-                config["embedding_provider"] = "openai"
-    
-    # Future: Add support for other chatbot types
-    # elif chatbot_type == "support":
-    #     config["persist_dir"] = getattr(settings, "SUPPORT_CHROMA_PERSIST_DIR", config["persist_dir"])
-    #     config["collection_name"] = getattr(settings, "SUPPORT_CHROMA_COLLECTION_NAME", config["collection_name"])
+    # If config_manager is provided, read from it (preferred method)
+    if config_manager:
+        try:
+            # Read vector store config from YAML
+            persist_dir = config_manager.get("vector_store.persist_dir")
+            collection_name = config_manager.get("vector_store.collection_name")
+            embedding_provider = config_manager.get("vector_store.embedding_provider")
+            embedding_model = config_manager.get("vector_store.embedding_model")
+            
+            if persist_dir:
+                config["persist_dir"] = persist_dir
+            if collection_name:
+                config["collection_name"] = collection_name
+            if embedding_provider is not None:
+                config["embedding_provider"] = embedding_provider
+            if embedding_model is not None:
+                config["embedding_model"] = embedding_model
+            
+            # Auto-detect embedding provider based on chat model if set to "auto"
+            if config["embedding_provider"] == "auto":
+                model_name = config_manager.get(ConfigKeys.MODEL_NAME)
+                if model_name and model_name.startswith("gemini"):
+                    config["embedding_provider"] = "google"
+                else:
+                    config["embedding_provider"] = "openai"
+            
+            logger.debug(f"Loaded vector store config from config_manager for {chatbot_type}")
+        except Exception as e:
+            logger.warning(f"Error reading vector store config from config_manager: {e}. Using defaults.")
+    else:
+        # No config_manager provided - use defaults
+        logger.debug(f"No config_manager provided for {chatbot_type}, using defaults")
     
     return config
 
@@ -240,8 +260,8 @@ def load_chroma_vector_store(
                 f"  Collection expects: {expected_dimension} dimensions (likely created with {likely_provider}: {likely_model})\n"
                 f"  Current provider ({embedding_provider}) produces: {actual_dimension} dimensions\n\n"
                 f"To fix this, either:\n"
-                f"  1. Set HR_EMBEDDING_PROVIDER={likely_provider} in your environment variables, or\n"
-                f"  2. Recreate the vector store with: python jobs/create_hr_vectorstore.py --embedding-provider {embedding_provider} --clear-existing"
+                f"  1. Set vector_store.embedding_provider={likely_provider} in your chatbot config YAML file, or\n"
+                f"  2. Recreate the vector store with the correct embedding provider"
             )
     except RuntimeError:
         # Re-raise our custom error
@@ -284,8 +304,8 @@ def load_chroma_vector_store(
                     f"  Collection expects: {expected_dim} dimensions\n"
                     f"  Current provider ({embedding_provider}) produces: {actual_dim} dimensions\n\n"
                     f"To fix this, either:\n"
-                    f"  1. Set HR_EMBEDDING_PROVIDER={likely_provider} in your environment variables, or\n"
-                    f"  2. Recreate the vector store with: python jobs/create_hr_vectorstore.py --embedding-provider {embedding_provider} --clear-existing"
+                    f"  1. Set vector_store.embedding_provider={likely_provider} in your chatbot config YAML file, or\n"
+                    f"  2. Recreate the vector store with the correct embedding provider"
                 ) from e
         raise
     
@@ -307,13 +327,18 @@ def load_chroma_vector_store(
     return vector_store
 
 
-def get_vector_store(chatbot_type: str) -> VectorStore:
+def get_vector_store(
+    chatbot_type: str,
+    config_manager: Optional[ChatbotConfigManager] = None
+) -> VectorStore:
     """
     Get or load the vector store for a chatbot type.
     Uses lazy loading - loads on first access and caches the result.
     
     Args:
         chatbot_type: Type of chatbot (e.g., "hr", "default")
+        config_manager: Optional ChatbotConfigManager instance with loaded config.
+                       If provided, vector store config will be read from it.
         
     Returns:
         VectorStore instance (Chroma or InMemory)
@@ -332,7 +357,7 @@ def get_vector_store(chatbot_type: str) -> VectorStore:
         
         try:
             # Get configuration for this chatbot type
-            config = get_vector_store_config(chatbot_type)
+            config = get_vector_store_config(chatbot_type, config_manager=config_manager)
             store_type = config.get("store_type", "chroma")
             
             if store_type == "chroma":
