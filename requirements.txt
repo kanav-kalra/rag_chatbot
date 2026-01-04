@@ -15,6 +15,7 @@ langchain-text-splitters==1.1.0
 langchain-openai
 langchain-anthropic
 langchain-ollama
+langchain-google-genai
 langsmith
 langgraph
 langgraph-checkpoint-redis
@@ -24,3 +25,5 @@ redis
 pypdf==6.5.0
 python-dotenv
 chromadb
+typing-extensions
+starlette
