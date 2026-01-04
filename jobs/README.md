@@ -51,6 +51,8 @@ python jobs/create_vectorstore.py --chatbot-type <chatbot_type> --folder /path/t
 | `--chunk-overlap` | Overlap between chunks in characters | `200` |
 | `--clear-existing` | Clear existing collection before adding documents | `False` |
 | `--no-recursive` | Don't search PDFs recursively in subdirectories | `False` (recursive) |
+| `--no-embedding-suffix` | Disable auto-generated collection names with embedding info | `False` (enabled) |
+| `--skip-if-exists` | Skip document ingestion if collection already exists | `False` |
 
 ### Usage Examples
 
@@ -108,6 +110,34 @@ python jobs/create_vectorstore.py \
 python jobs/create_vectorstore.py --chatbot-type support --folder /path/to/pdfs
 ```
 
+#### 9. Multiple Embeddings Support (NEW)
+The script now automatically creates separate collections for different embedding providers/models, so you can store multiple embeddings without overwriting existing ones.
+
+**Create embeddings with OpenAI:**
+```bash
+python jobs/create_vectorstore.py --chatbot-type hr --embedding-provider openai --embedding-model text-embedding-3-small
+```
+This creates collection: `hr_chatbot_openai_text-embedding-3-small`
+
+**Create embeddings with Google:**
+```bash
+python jobs/create_vectorstore.py --chatbot-type hr --embedding-provider google --embedding-model models/text-embedding-004
+```
+This creates collection: `hr_chatbot_google_text-embedding-004`
+
+**Skip if collection already exists:**
+```bash
+python jobs/create_vectorstore.py --chatbot-type hr --embedding-provider openai --skip-if-exists
+```
+This is useful when you want to avoid re-ingesting documents for an existing embedding.
+
+**Disable auto-naming (use explicit collection name):**
+```bash
+python jobs/create_vectorstore.py --chatbot-type hr --collection-name my_custom_collection --no-embedding-suffix
+```
+
+**Note:** To use a specific collection, update your `{chatbot_type}_chatbot_config.yaml` to set `vector_store.collection_name` to the desired collection name.
+
 ### What the Script Does
 
 1. **Loads PDF Documents**: Recursively searches the specified folder for PDF files
@@ -143,7 +173,14 @@ The script will:
 
 **Collection already exists**
 - Use `--clear-existing` to rebuild from scratch
+- Use `--skip-if-exists` to skip ingestion if collection already exists
 - Or the script will append to existing collection (may create duplicates)
+
+**Multiple Embeddings**
+- By default, collection names include the embedding provider and model (e.g., `hr_chatbot_openai_text-embedding-3-small`)
+- This allows you to store multiple embeddings without overwriting
+- To use a specific collection, update `vector_store.collection_name` in your config YAML
+- Use `--no-embedding-suffix` to disable auto-naming and use the base collection name from config
 
 ### Integration with Chatbots
 
@@ -153,4 +190,24 @@ The vector store created by this script is automatically loaded by the chatbot s
 - `vector_store.embedding_provider`: Embedding provider (`auto`, `openai`, or `google`)
 
 Make sure the embedding provider used to create the vector store matches what the chatbot expects, or the chatbot won't be able to load it correctly.
+
+### Multiple Embeddings Support
+
+The script now supports storing multiple embeddings from different providers/models simultaneously. This is achieved by automatically generating collection names that include the embedding provider and model information.
+
+**How it works:**
+- Collection names are auto-generated as: `{base_name}_{provider}_{model_slug}`
+- Example: `hr_chatbot_openai_text-embedding-3-small` or `hr_chatbot_google_embedding-001`
+- Each embedding provider/model gets its own collection
+- You can switch between embeddings by updating `vector_store.collection_name` in your config
+
+**Benefits:**
+- No need to re-run ingestion when changing embedding models
+- Compare different embeddings easily
+- Keep multiple embeddings available for A/B testing
+
+**Usage:**
+1. Create embeddings with different providers/models - each will create its own collection
+2. Update your `{chatbot_type}_chatbot_config.yaml` to point to the desired collection
+3. The chatbot will automatically use the specified collection
 

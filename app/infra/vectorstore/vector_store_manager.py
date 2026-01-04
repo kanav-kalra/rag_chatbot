@@ -1,6 +1,9 @@
 """
 Vector Store Manager - Generic vector store management for different chatbot types
 Supports loading and caching vector stores (ChromaDB, InMemory, etc.) per chatbot type
+
+Supports multiple embedding providers/models by auto-generating collection names
+that include provider and model information (e.g., hr_chatbot_openai_text-embedding-3-small)
 """
 import re
 import sys
@@ -47,6 +50,57 @@ except ImportError:
 # Global cache for vector stores per chatbot type
 _vector_stores: Dict[str, VectorStore] = {}
 _vector_stores_lock = Lock()
+
+
+def get_default_embedding_model(provider: str, model: Optional[str] = None) -> str:
+    """
+    Get the actual embedding model name that will be used, applying provider defaults.
+    
+    Args:
+        provider: Embedding provider ("openai" or "google")
+        model: Optional model name override
+        
+    Returns:
+        Model name to use (with provider defaults applied)
+    """
+    if provider == "openai":
+        return model or "text-embedding-3-small"
+    elif provider == "google":
+        return model or "models/embedding-001"
+    else:
+        return model or "default"
+
+
+def generate_collection_name(
+    base_name: str,
+    provider: str,
+    model: Optional[str] = None
+) -> str:
+    """
+    Generate a collection name that includes provider and model information.
+    This ensures different embeddings are stored in separate collections.
+    Used by both create_vectorstore.py and vector_store_manager.py.
+    
+    Args:
+        base_name: Base collection name (e.g., "hr_chatbot")
+        provider: Embedding provider (e.g., "openai", "google")
+        model: Embedding model name (e.g., "text-embedding-3-small", "models/embedding-001")
+        
+    Returns:
+        Collection name like: "hr_chatbot_openai_text-embedding-3-small"
+    """
+    # Create a slug from the model name (remove special chars, replace / with _)
+    if model:
+        # Remove "models/" prefix if present (for Google models)
+        model_slug = model.replace("models/", "")
+        # Replace special characters with underscores
+        model_slug = re.sub(r'[^a-zA-Z0-9_-]', '_', model_slug)
+        # Remove multiple consecutive underscores
+        model_slug = re.sub(r'_+', '_', model_slug).strip('_')
+        return f"{base_name}_{provider}_{model_slug}"
+    else:
+        # Use provider default model indicator
+        return f"{base_name}_{provider}_default"
 
 
 def get_vector_store_config(
@@ -105,6 +159,37 @@ def get_vector_store_config(
                     config["embedding_provider"] = "google"
                 else:
                     config["embedding_provider"] = "openai"
+            
+            # Auto-generate collection name if not explicitly set or if it matches base name
+            # This supports the multiple embeddings feature from create_vectorstore.py
+            # Only auto-generate if:
+            # 1. collection_name is not set in YAML, OR
+            # 2. collection_name is set to the base chatbot_type (indicating user wants auto-generation)
+            base_collection_name = collection_name if collection_name else chatbot_type
+            should_auto_generate = (not collection_name) or (collection_name == chatbot_type)
+            
+            if should_auto_generate:
+                # Get the actual model name that will be used
+                actual_model = get_default_embedding_model(
+                    config["embedding_provider"],
+                    config["embedding_model"]
+                )
+                
+                # Generate collection name with embedding suffix
+                config["collection_name"] = generate_collection_name(
+                    base_collection_name,
+                    config["embedding_provider"],
+                    actual_model
+                )
+                logger.info(
+                    f"Auto-generated collection name: {config['collection_name']} "
+                    f"(base: {base_collection_name}, provider: {config['embedding_provider']}, model: {actual_model})"
+                )
+            else:
+                # Use explicitly set collection name
+                logger.debug(
+                    f"Using explicit collection name from config: {config['collection_name']}"
+                )
             
             logger.debug(f"Loaded vector store config from config_manager for {chatbot_type}")
         except Exception as e:
