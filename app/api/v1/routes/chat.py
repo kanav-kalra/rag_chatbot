@@ -90,8 +90,8 @@ async def chat_with_hr_chatbot(
             user_id=session.user_id
         )
         
-        # Get model name from settings
-        model_used = settings.CHAT_MODEL
+        # Get model name from chatbot instance (as per hr_chatbot.py pattern)
+        model_used = chatbot.model_name
         
         logger.info(
             f"Chat completed for session {session.session_id} "
