@@ -7,7 +7,7 @@ model:
   # Override with HR_CHAT_MODEL environment variable
   name: "gemini-2.5-flash"  # Default to Gemini 2.5 Flash
   # Override with HR_CHAT_MODEL_TEMPERATURE environment variable
-  temperature: 0.7
+  temperature: 0.2
   # Override with HR_CHAT_MODEL_MAX_TOKENS environment variable
   max_tokens: 2000
   base_url: null  # Optional, mainly for Ollama

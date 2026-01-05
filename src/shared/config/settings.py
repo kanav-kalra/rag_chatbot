@@ -54,7 +54,7 @@ class Settings:
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
     
     # LLM Model Configuration
-    # Supported models: "gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "gpt-4o", "claude-3-opus", "claude-3-sonnet", "gemini-pro", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"
+    # Supported models: "gpt-4", "gpt-4-turbo", "gpt-3.5-turbo", "gpt-3.5-turbo-16k", "gpt-4o", "claude-3-opus", "claude-3-sonnet", "gemini-pro", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"
     CHAT_MODEL: str = os.getenv("CHAT_MODEL", "gpt-3.5-turbo")
     CHAT_MODEL_TEMPERATURE: float = float(os.getenv("CHAT_MODEL_TEMPERATURE", "0.7"))
     CHAT_MODEL_MAX_TOKENS: int = int(os.getenv("CHAT_MODEL_MAX_TOKENS", "2000"))
@@ -81,14 +81,7 @@ class Settings:
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
     REDIS_DB: int = int(os.getenv("REDIS_DB", "0"))
     
-    # Memory Management Configuration
-    # Memory strategies: "none", "trim", "summarize", "trim_and_summarize"
-    DEFAULT_MEMORY_STRATEGY: str = os.getenv("DEFAULT_MEMORY_STRATEGY", "none")
-    MEMORY_TRIM_KEEP_MESSAGES: int = int(os.getenv("MEMORY_TRIM_KEEP_MESSAGES", "10"))  # Keep last N messages
-    MEMORY_SUMMARIZE_THRESHOLD: int = int(os.getenv("MEMORY_SUMMARIZE_THRESHOLD", "20"))  # Summarize when messages exceed this
-    MEMORY_SUMMARIZE_MODEL: str = os.getenv("MEMORY_SUMMARIZE_MODEL", "gpt-3.5-turbo-16k")  # Model for summarization (should have high context window)
-    
-    # Note: HR chatbot configuration (model, agent pool, vector store) is now in hr_chatbot_config.yaml
+    # Note: HR chatbot configuration (model, agent pool, vector store, memory) is now in hr_chatbot_config.yaml
     # The vector store manager will read from YAML config first, then fall back to defaults
     
     # LangSmith Configuration (for observability and tracing)

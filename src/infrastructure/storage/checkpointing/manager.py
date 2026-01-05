@@ -13,7 +13,6 @@ if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from langgraph.checkpoint.redis import RedisSaver
-from langgraph.checkpoint.memory import InMemorySaver
 
 from src.shared.config.logging import logger
 from src.shared.config.settings import settings
@@ -27,6 +26,7 @@ class CheckpointerManager:
     
     _instance: Optional['CheckpointerManager'] = None
     _checkpointer: Optional[Any] = None
+    _checkpointer_context: Optional[Any] = None
     _use_redis: bool = True
     
     def __new__(cls):
@@ -41,25 +41,18 @@ class CheckpointerManager:
             self._initialize_checkpointer()
     
     def _initialize_checkpointer(self) -> None:
-        """Initialize Redis checkpointer or fallback to in-memory"""
-        try:
-            # Try to use Redis if available
-            redis_url = getattr(settings, 'REDIS_URL', 'redis://localhost:6379')
-            logger.info(f"Initializing Redis checkpointer with URL: {redis_url}")
-            
-            self._checkpointer = RedisSaver.from_conn_string(redis_url)
-            self._checkpointer.setup()
-            self._use_redis = True
-            logger.info("Redis checkpointer initialized successfully")
-        except Exception as e:
-            logger.warning(
-                f"Failed to initialize Redis checkpointer: {e}. "
-                "Falling back to in-memory checkpointer."
-            )
-            # Fallback to in-memory checkpointer
-            self._checkpointer = InMemorySaver()
-            self._use_redis = False
-            logger.info("Using in-memory checkpointer as fallback")
+        """Initialize Redis checkpointer. Raises exception if Redis is unavailable."""
+        # Try to use Redis if available
+        redis_url = getattr(settings, 'REDIS_URL', 'redis://localhost:6379')
+        logger.info(f"Initializing Redis checkpointer with URL: {redis_url}")
+        
+        # RedisSaver.from_conn_string() returns a context manager
+        # We need to enter it to get the actual checkpointer instance
+        self._checkpointer_context = RedisSaver.from_conn_string(redis_url)
+        self._checkpointer = self._checkpointer_context.__enter__()
+        self._checkpointer.setup()
+        self._use_redis = True
+        logger.info("Redis checkpointer initialized successfully")
     
     @property
     def checkpointer(self):
@@ -75,8 +68,25 @@ class CheckpointerManager:
     
     def reset(self) -> None:
         """Reset checkpointer (reinitialize)"""
+        # Clean up existing context manager if using Redis
+        if self._checkpointer_context is not None and self._use_redis:
+            try:
+                self._checkpointer_context.__exit__(None, None, None)
+            except Exception as e:
+                logger.warning(f"Error cleaning up Redis checkpointer context: {e}")
+        
         self._checkpointer = None
+        self._checkpointer_context = None
         self._initialize_checkpointer()
+    
+    def cleanup(self) -> None:
+        """Clean up checkpointer resources (call on application shutdown)"""
+        if self._checkpointer_context is not None and self._use_redis:
+            try:
+                self._checkpointer_context.__exit__(None, None, None)
+                logger.info("Redis checkpointer context cleaned up")
+            except Exception as e:
+                logger.warning(f"Error cleaning up Redis checkpointer context: {e}")
     
     def get_config(self, thread_id: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         """

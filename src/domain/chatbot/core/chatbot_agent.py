@@ -27,12 +27,16 @@ from src.shared.config.settings import settings
 from src.shared.config.logging import logger
 from src.infrastructure.llm.manager import get_llm_manager
 from src.infrastructure.storage.checkpointing.manager import get_checkpointer
-from src.shared.memory.config import MemoryConfig, MemoryStrategy, get_memory_config
+from src.shared.memory.config import MemoryConfig, MemoryStrategy, MemoryConfigFactory
 from src.domain.memory.manager import MemoryManager
 from src.application.chatbot.agent_pool import get_agent_pool
 from src.domain.chatbot.core.config import ChatbotConfigManager, ConfigKeys
 from src.domain.chatbot.core.tools import ChatbotToolFactory
 from src.domain.chatbot.core.prompts import ChatbotPromptBuilder
+
+
+# Class-level cache for chatbot types to avoid creating instances just to get the type
+_chatbot_type_cache: dict = {}
 
 
 class ChatbotAgent(ABC):
@@ -130,6 +134,19 @@ class ChatbotAgent(ABC):
         pass
     
     @classmethod
+    def _get_chatbot_type_class(cls) -> Optional[str]:
+        """
+        Get the chatbot type identifier without creating an instance.
+        Optional class method that subclasses can override to avoid instantiation.
+        
+        If not overridden, falls back to creating a temporary instance.
+        
+        Returns:
+            Chatbot type string (e.g., "hr", "default") or None to use instance method
+        """
+        return None
+    
+    @classmethod
     @abstractmethod
     def _get_default_instance(cls):
         """
@@ -177,32 +194,21 @@ class ChatbotAgent(ABC):
         
         Returns:
             MemoryConfig instance
+            
+        Raises:
+            ValueError: If memory configuration is missing or invalid
         """
-        # Get memory config from YAML
+        # Get memory config from YAML - all fields are required
         memory_config_dict = config_manager.get_nested_dict(ConfigKeys.MEMORY, {})
         
-        if memory_config_dict:
-            # Create MemoryConfig from YAML
-            strategy_str = memory_config_dict.get("strategy", "none")
-            try:
-                strategy = MemoryStrategy(strategy_str)
-            except ValueError:
-                strategy = MemoryStrategy.NONE
-            
-            memory_config = MemoryConfig(
-                strategy=strategy,
-                trim_keep_messages=memory_config_dict.get("trim_keep_messages", 10),
-                summarize_threshold=memory_config_dict.get("summarize_threshold", 20),
-                summarize_model=memory_config_dict.get("summarize_model", None)
+        if not memory_config_dict:
+            raise ValueError(
+                f"Memory configuration is required for chatbot type '{self.chatbot_type}'. "
+                f"Please provide memory configuration in the YAML config file."
             )
-            
-            # Apply settings overrides
-            from src.shared.memory.config import apply_settings_to_memory_config
-            memory_config = apply_settings_to_memory_config(memory_config)
-            return memory_config
-        else:
-            # Fallback to generic default
-            return get_memory_config(self.chatbot_type)
+        
+        # Use factory to create MemoryConfig - validates all required fields
+        return MemoryConfigFactory.from_dict(memory_config_dict)
     
     def __init__(
         self,
@@ -530,8 +536,8 @@ class ChatbotAgent(ABC):
         Uses the agent pool for efficient resource usage across multiple requests.
         Thread-safe for concurrent API requests.
         
-        The chatbot type is automatically determined from the class by creating
-        a temporary instance and calling _get_chatbot_type().
+        The chatbot type is cached per class to avoid creating temporary instances
+        on every call, which would trigger unnecessary initialization.
         
         Returns:
             ChatbotAgent instance from agent pool
@@ -540,9 +546,17 @@ class ChatbotAgent(ABC):
             RuntimeError: If chatbot initialization fails
         """
         try:
-            # Get chatbot type from class by creating a temporary instance
-            temp_instance = cls._get_default_instance()
-            chatbot_type = temp_instance._get_chatbot_type()
+            # Get chatbot type from cache or by using class method or creating a temporary instance
+            class_key = cls.__name__
+            if class_key not in _chatbot_type_cache:
+                # Try class method first (avoids instantiation)
+                chatbot_type = cls._get_chatbot_type_class()
+                if chatbot_type is None:
+                    # Fall back to creating a temporary instance (only once per class)
+                    temp_instance = cls._get_default_instance()
+                    chatbot_type = temp_instance._get_chatbot_type()
+                _chatbot_type_cache[class_key] = chatbot_type
+            chatbot_type = _chatbot_type_cache[class_key]
             
             # Get pool size from YAML config if available
             pool_size = 1  # Default
