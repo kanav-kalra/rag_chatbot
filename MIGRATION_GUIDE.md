@@ -58,7 +58,7 @@ Path calculations have been updated to account for the new `src/` prefix:
 ### 4. Configuration Files
 
 Configuration YAML files have been moved:
-- `app/core/hr_chatbot_config.yaml` → `config/chatbot/hr_chatbot.yaml`
+- `app/core/hr_chatbot_config.yaml` → `config/chatbot/hr_chatbot_config.yaml`
 - `app/services/chatbot/default_prompts.yaml` → `config/chatbot/prompts/default.yaml`
 - `app/services/chatbot/hr_chatbot_prompts.yaml` → `config/chatbot/prompts/hr_chatbot.yaml`
 

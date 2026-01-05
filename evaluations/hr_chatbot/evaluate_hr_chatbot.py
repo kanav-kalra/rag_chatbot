@@ -46,7 +46,7 @@ initialize_langsmith(force_enable=True)
 client = Client()
 
 # Load HR chatbot config to get model settings
-_hr_config_manager = ChatbotConfigManager("hr_chatbot.yaml")
+_hr_config_manager = ChatbotConfigManager("hr_chatbot_config.yaml")
 
 # Cache chatbot instance and services to avoid repeated initialization
 _chatbot_instance = None
@@ -286,7 +286,7 @@ class RetrievalRelevanceGrade(TypedDict):
 
 
 # Grader LLMs - Use model from HR chatbot config
-# Get model configuration from hr_chatbot.yaml
+# Get model configuration from hr_chatbot_config.yaml
 grader_model_name = _hr_config_manager.get(ConfigKeys.MODEL_NAME) or settings.CHAT_MODEL
 grader_temperature = _hr_config_manager.get(ConfigKeys.MODEL_TEMPERATURE)
 if grader_temperature is not None:
@@ -297,7 +297,7 @@ else:
 logger.info(f"Using model from HR chatbot config for graders: {grader_model_name} (temperature: {grader_temperature})")
 
 # Use LLM manager to create the grader LLM (respects model configuration)
-# This ensures we use the same model provider as configured in hr_chatbot.yaml
+# This ensures we use the same model provider as configured in hr_chatbot_config.yaml
 llm_manager = get_llm_manager()
 grader_llm = llm_manager.get_llm(
     model_name=grader_model_name,

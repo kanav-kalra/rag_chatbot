@@ -1,6 +1,6 @@
 """
 HR Chatbot - Minimal implementation using refactored ChatbotAgent architecture.
-All configuration comes from hr_chatbot.yaml via ChatbotConfigManager.
+All configuration comes from hr_chatbot_config.yaml via ChatbotConfigManager.
 """
 from src.domain.chatbot.core.chatbot_agent import ChatbotAgent
 
@@ -11,7 +11,7 @@ class HRChatbot(ChatbotAgent):
     
     This is a minimal subclass that only defines:
     1. Chatbot type identifier ("hr")
-    2. Config filename ("hr_chatbot.yaml")
+    2. Config filename ("hr_chatbot_config.yaml")
     
     All other functionality (config loading, tool creation, prompt building, etc.)
     is handled by the base ChatbotAgent class using the new architecture:
@@ -36,7 +36,7 @@ class HRChatbot(ChatbotAgent):
     @classmethod
     def _get_config_filename(cls) -> str:
         """Return the YAML config filename."""
-        return "hr_chatbot.yaml"
+        return "hr_chatbot_config.yaml"
     
     @classmethod
     def _get_default_instance(cls) -> "HRChatbot":
@@ -44,7 +44,7 @@ class HRChatbot(ChatbotAgent):
         Create a default HR chatbot instance for the agent pool.
         
         Returns:
-            HRChatbot instance with configuration from hr_chatbot.yaml
+            HRChatbot instance with configuration from hr_chatbot_config.yaml
         """
         return HRChatbot()
 

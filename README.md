@@ -195,7 +195,7 @@ Pages are automatically discovered by Streamlit based on filename.
 ## Configuration
 
 Chatbot configurations are stored in YAML files in `config/chatbot/`:
-- `hr_chatbot.yaml`: HR chatbot configuration
+- `hr_chatbot_config.yaml`: HR chatbot configuration
 - `prompts/default.yaml`: Default prompts
 - `prompts/hr_chatbot.yaml`: HR chatbot prompts
 
