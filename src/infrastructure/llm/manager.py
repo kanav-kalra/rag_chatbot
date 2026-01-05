@@ -122,6 +122,13 @@ class DefaultModelConfigRepository:
                 "default_temperature": 0.7,
                 "default_max_tokens": 2000,
             },
+            "gpt-3.5-turbo-16k": {
+                "provider": "openai",
+                "model_name": "gpt-3.5-turbo-16k",
+                "class": ChatOpenAI,
+                "default_temperature": 0.7,
+                "default_max_tokens": 4000,  # Higher max tokens for 16k context window
+            },
             "claude-3-opus": {
                 "provider": "anthropic",
                 "model_name": "claude-3-opus-20240229",

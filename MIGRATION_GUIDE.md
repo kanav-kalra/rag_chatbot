@@ -46,7 +46,7 @@ All imports have been updated from `app.*` to `src.*`:
 |-----------|-----------|
 | `from app.core.config import settings` | `from src.shared.config.settings import settings` |
 | `from app.core.logging import logger` | `from src.shared.config.logging import logger` |
-| `from app.services.chatbot.chatbot_service import ChatbotAgent` | `from src.domain.chatbot.core.agent import ChatbotAgent` |
+| `from app.services.chatbot.chatbot_service import ChatbotAgent` | `from src.domain.chatbot.core.chatbot_agent import ChatbotAgent` |
 | `from app.infra.llm.llm_manager import get_llm_manager` | `from src.infrastructure.llm.manager import get_llm_manager` |
 
 ### 3. Path References

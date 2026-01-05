@@ -52,12 +52,10 @@ async def lifespan(app: FastAPI):
         logger.warning(f"LangSmith initialization failed: {e}. Continuing without tracing.")
     
     # Initialize checkpointer manager (Redis connection)
-    try:
-        from src.infrastructure.storage.checkpointing.manager import get_checkpointer_manager
-        manager = get_checkpointer_manager()
-        logger.info(f"Checkpointer initialized: {'Redis' if manager.is_redis else 'In-Memory'}")
-    except Exception as e:
-        logger.warning(f"Checkpointer initialization failed: {e}. Continuing with fallback.")
+    # This will raise an exception if Redis is unavailable, causing startup to fail
+    from src.infrastructure.storage.checkpointing.manager import get_checkpointer_manager
+    manager = get_checkpointer_manager()
+    logger.info(f"Checkpointer initialized: {'Redis' if manager.is_redis else 'In-Memory'}")
     
     # Note: Chatbot vector stores are now loaded on-demand from ChromaDB
     # Run 'python jobs/create_vectorstore.py --chatbot-type <type>' to create a vector store
@@ -66,6 +64,13 @@ async def lifespan(app: FastAPI):
     
     # Shutdown (if needed)
     # Clean up resources here
+    try:
+        from src.infrastructure.storage.checkpointing.manager import get_checkpointer_manager
+        manager = get_checkpointer_manager()
+        manager.cleanup()
+    except Exception as e:
+        logger.warning(f"Error during checkpointer cleanup: {e}")
+    
     logger.info("FastAPI application shutdown.")
 
 

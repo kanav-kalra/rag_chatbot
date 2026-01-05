@@ -1,8 +1,12 @@
 """
 Memory Configuration for Chatbots
 Defines memory management strategies (trim, summarize, or combination)
+
+Following SOLID principles:
+- Single Responsibility: MemoryConfig holds data, MemoryConfigFactory creates instances
+- No default configurations - all values must be explicitly provided
 """
-from typing import Literal, Optional
+from typing import Optional
 from enum import Enum
 from dataclasses import dataclass
 
@@ -20,19 +24,22 @@ class MemoryConfig:
     """
     Configuration for memory management in chatbots.
     
+    All fields are required - no default values.
+    Configuration must be explicitly provided.
+    
     Attributes:
         strategy: Memory management strategy
             - "none": No memory management (keep all messages)
             - "trim": Trim old messages, keep only recent ones
             - "summarize": Summarize old messages when threshold is reached
             - "trim_and_summarize": Both trim and summarize
-        trim_keep_messages: Number of recent messages to keep when trimming (default: 10)
-        summarize_threshold: Number of messages before summarizing (default: 20)
+        trim_keep_messages: Number of recent messages to keep when trimming
+        summarize_threshold: Number of messages before summarizing
         summarize_model: Optional model name for summarization (uses chat model if None)
     """
-    strategy: MemoryStrategy = MemoryStrategy.NONE
-    trim_keep_messages: int = 10
-    summarize_threshold: int = 20
+    strategy: MemoryStrategy
+    trim_keep_messages: int
+    summarize_threshold: int
     summarize_model: Optional[str] = None
     
     def __post_init__(self):
@@ -44,94 +51,82 @@ class MemoryConfig:
         if self.strategy == MemoryStrategy.TRIM_AND_SUMMARIZE:
             if self.trim_keep_messages >= self.summarize_threshold:
                 raise ValueError(
-                    "For trim_and_summarize strategy, trim_keep_messages should be "
+                    "For trim_and_summarize strategy, trim_keep_messages must be "
                     "less than summarize_threshold"
                 )
 
 
-# Default memory configurations for different chatbots
-# These can be overridden via environment variables or API parameters
-# Default summarize_model uses a model with higher context window for better summarization
-DEFAULT_MEMORY_CONFIGS = {
-    "default": MemoryConfig(
-        strategy=MemoryStrategy.TRIM,
-        trim_keep_messages=1,
-        summarize_threshold=2,
-        summarize_model="gpt-3.5-turbo-16k",  # Use high-context model for summarization
-    ),
-}
-
-
-def get_memory_config_from_settings(chatbot_type: str = "default") -> MemoryConfig:
+class MemoryConfigFactory:
     """
-    Get memory configuration from settings (environment variables).
+    Factory for creating MemoryConfig instances from dictionaries.
     
-    Args:
-        chatbot_type: Type of chatbot (e.g., "default")
+    Follows Single Responsibility Principle - only responsible for
+    creating MemoryConfig instances from various sources.
+    """
+    
+    @staticmethod
+    def from_dict(config_dict: dict) -> MemoryConfig:
+        """
+        Create MemoryConfig from a dictionary.
         
-    Returns:
-        MemoryConfig instance with values from settings
-    """
-    import os
-    from src.shared.config.settings import settings
-    
-    # Get default config
-    config = DEFAULT_MEMORY_CONFIGS.get(chatbot_type, DEFAULT_MEMORY_CONFIGS["default"])
-    
-    # Apply settings overrides using generic function
-    return apply_settings_to_memory_config(config)
-
-
-def get_memory_config(chatbot_type: str = "default", use_settings: bool = True) -> MemoryConfig:
-    """
-    Get memory configuration for a chatbot type.
-    
-    Args:
-        chatbot_type: Type of chatbot (e.g., "default")
-        use_settings: Whether to override with settings (default: True)
+        Args:
+            config_dict: Dictionary with keys:
+                - strategy: str (required)
+                - trim_keep_messages: int (required)
+                - summarize_threshold: int (required)
+                - summarize_model: Optional[str]
         
-    Returns:
-        MemoryConfig instance
-    """
-    if use_settings:
-        return get_memory_config_from_settings(chatbot_type)
-    return DEFAULT_MEMORY_CONFIGS.get(chatbot_type, DEFAULT_MEMORY_CONFIGS["default"])
-
-
-def apply_settings_to_memory_config(memory_config: MemoryConfig) -> MemoryConfig:
-    """
-    Apply settings overrides to a memory configuration.
-    
-    Generic function that applies environment variable settings to any memory config.
-    No chatbot-specific logic - works with any MemoryConfig instance.
-    
-    Args:
-        memory_config: MemoryConfig instance to apply settings to (will be modified)
+        Returns:
+            MemoryConfig instance
+            
+        Raises:
+            ValueError: If required fields are missing or invalid
+            KeyError: If required fields are missing
+        """
+        if not config_dict:
+            raise ValueError("Memory configuration dictionary cannot be empty")
         
-    Returns:
-        MemoryConfig instance with settings applied (same instance, modified in place)
-    """
-    from src.shared.config.settings import settings
-    
-    # Override with settings if available
-    strategy_str = getattr(settings, 'DEFAULT_MEMORY_STRATEGY', None)
-    if strategy_str:
+        # Validate required fields
+        required_fields = ["strategy", "trim_keep_messages", "summarize_threshold"]
+        missing_fields = [field for field in required_fields if field not in config_dict]
+        if missing_fields:
+            raise ValueError(
+                f"Missing required memory configuration fields: {', '.join(missing_fields)}"
+            )
+        
+        # Parse strategy
+        strategy_str = config_dict["strategy"]
         try:
-            memory_config.strategy = MemoryStrategy(strategy_str)
-        except ValueError:
-            pass  # Keep default if invalid
-    
-    memory_config.trim_keep_messages = getattr(
-        settings, 'MEMORY_TRIM_KEEP_MESSAGES', memory_config.trim_keep_messages
-    )
-    memory_config.summarize_threshold = getattr(
-        settings, 'MEMORY_SUMMARIZE_THRESHOLD', memory_config.summarize_threshold
-    )
-    
-    # Override summarize_model from settings if provided
-    summarize_model = getattr(settings, 'MEMORY_SUMMARIZE_MODEL', None)
-    if summarize_model:
-        memory_config.summarize_model = summarize_model
-    
-    return memory_config
-
+            strategy = MemoryStrategy(strategy_str)
+        except ValueError as e:
+            raise ValueError(
+                f"Invalid memory strategy: '{strategy_str}'. "
+                f"Must be one of: {[s.value for s in MemoryStrategy]}"
+            ) from e
+        
+        # Parse numeric fields
+        try:
+            trim_keep_messages = int(config_dict["trim_keep_messages"])
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"trim_keep_messages must be an integer, got: {config_dict['trim_keep_messages']}"
+            ) from e
+        
+        try:
+            summarize_threshold = int(config_dict["summarize_threshold"])
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"summarize_threshold must be an integer, got: {config_dict['summarize_threshold']}"
+            ) from e
+        
+        # Optional field
+        summarize_model = config_dict.get("summarize_model")
+        if summarize_model is not None and not isinstance(summarize_model, str):
+            raise ValueError(f"summarize_model must be a string or None, got: {type(summarize_model)}")
+        
+        return MemoryConfig(
+            strategy=strategy,
+            trim_keep_messages=trim_keep_messages,
+            summarize_threshold=summarize_threshold,
+            summarize_model=summarize_model
+        )

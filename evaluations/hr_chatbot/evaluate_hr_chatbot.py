@@ -48,6 +48,149 @@ client = Client()
 # Load HR chatbot config to get model settings
 _hr_config_manager = ChatbotConfigManager("hr_chatbot.yaml")
 
+# Cache chatbot instance and services to avoid repeated initialization
+_chatbot_instance = None
+_vector_store = None
+_retrieval_service = None
+
+
+def _get_chatbot_instance():
+    """Get or create chatbot instance (singleton pattern for evaluation)."""
+    global _chatbot_instance
+    if _chatbot_instance is None:
+        _chatbot_instance = get_hr_chatbot()
+        logger.info("Initialized chatbot instance for evaluation (will be reused)")
+    return _chatbot_instance
+
+
+def _get_retrieval_service():
+    """Get or create retrieval service (singleton pattern for evaluation)."""
+    global _vector_store, _retrieval_service
+    if _retrieval_service is None:
+        _vector_store = get_vector_store("hr")
+        _retrieval_service = RetrievalService(_vector_store)
+    return _retrieval_service
+
+
+def _extract_documents_from_agent_result(result: Any) -> List[Document]:
+    """
+    Extract retrieved documents from agent execution result.
+    
+    The agent's tool calls with response_format="content_and_artifact" store
+    the artifact in ToolMessage objects. The artifact is typically in the
+    response_metadata or as a structured attribute.
+    
+    Args:
+        result: Agent invocation result (dict with "messages" key)
+        
+    Returns:
+        List of Document objects, or empty list if extraction fails
+    """
+    try:
+        from langchain_core.messages import ToolMessage
+        
+        if not isinstance(result, dict) or "messages" not in result:
+            return []
+        
+        documents = []
+        messages = result["messages"]
+        
+        # Look for ToolMessage objects that contain artifacts from retrieval tool
+        for message in messages:
+            # Check if it's a ToolMessage (from tool execution)
+            is_tool_message = (
+                isinstance(message, ToolMessage) or
+                (isinstance(message, dict) and message.get("type") == "tool")
+            )
+            
+            if not is_tool_message:
+                continue
+            
+            # Try multiple ways to extract the artifact
+            
+            # Method 1: Check response_metadata for artifact
+            response_metadata = None
+            if hasattr(message, 'response_metadata'):
+                response_metadata = message.response_metadata
+            elif isinstance(message, dict):
+                response_metadata = message.get('response_metadata', {})
+            
+            if response_metadata and 'artifact' in response_metadata:
+                artifact = response_metadata['artifact']
+                if isinstance(artifact, list) and artifact:
+                    if isinstance(artifact[0], dict) and 'content' in artifact[0]:
+                        for doc_data in artifact:
+                            documents.append(
+                                Document(
+                                    page_content=doc_data.get('content', ''),
+                                    metadata=doc_data.get('metadata', {})
+                                )
+                            )
+                        if documents:
+                            logger.debug(f"Extracted {len(documents)} documents from response_metadata")
+                            return documents
+            
+            # Method 2: Check if content is the artifact (list of dicts)
+            content = message.content if hasattr(message, 'content') else message.get('content', '')
+            
+            if isinstance(content, list) and content:
+                # Check if it looks like an artifact (list of dicts with 'content' and 'metadata')
+                if isinstance(content[0], dict) and 'content' in content[0]:
+                    for doc_data in content:
+                        documents.append(
+                            Document(
+                                page_content=doc_data.get('content', ''),
+                                metadata=doc_data.get('metadata', {})
+                            )
+                        )
+                    if documents:
+                        logger.debug(f"Extracted {len(documents)} documents from content (list)")
+                        return documents
+            
+            # Method 3: Try parsing content as JSON string
+            if isinstance(content, str) and content.strip().startswith('['):
+                try:
+                    import json
+                    parsed = json.loads(content)
+                    if isinstance(parsed, list) and parsed:
+                        if isinstance(parsed[0], dict) and 'content' in parsed[0]:
+                            for doc_data in parsed:
+                                documents.append(
+                                    Document(
+                                        page_content=doc_data.get('content', ''),
+                                        metadata=doc_data.get('metadata', {})
+                                    )
+                                )
+                            if documents:
+                                logger.debug(f"Extracted {len(documents)} documents from JSON content")
+                                return documents
+                except (json.JSONDecodeError, ValueError, KeyError):
+                    pass
+            
+            # Method 4: Check for artifact attribute directly
+            if hasattr(message, 'artifact'):
+                artifact = message.artifact
+                if isinstance(artifact, list) and artifact:
+                    if isinstance(artifact[0], dict) and 'content' in artifact[0]:
+                        for doc_data in artifact:
+                            documents.append(
+                                Document(
+                                    page_content=doc_data.get('content', ''),
+                                    metadata=doc_data.get('metadata', {})
+                                )
+                            )
+                        if documents:
+                            logger.debug(f"Extracted {len(documents)} documents from artifact attribute")
+                            return documents
+        
+        # If we couldn't extract from tool messages, return empty list
+        logger.debug("Could not extract documents from agent execution, will retrieve separately")
+        return []
+        
+    except Exception as e:
+        logger.warning(f"Error extracting documents from agent result: {e}")
+        return []
+
 
 @traceable()
 def hr_chatbot_wrapper(inputs: Dict[str, Any]) -> Dict[str, Any]:
@@ -63,35 +206,45 @@ def hr_chatbot_wrapper(inputs: Dict[str, Any]) -> Dict[str, Any]:
     """
     question = inputs["question"]
     
-    # Get HR chatbot instance
-    chatbot = get_hr_chatbot()
+    # Get HR chatbot instance (reused from cache/pool)
+    chatbot = _get_chatbot_instance()
     
     # Generate a unique thread_id for this evaluation run
     thread_id = f"eval_{uuid4().hex[:8]}"
     
-    # Get the answer from the chatbot
-    answer = chatbot.chat(
-        query=question,
-        thread_id=thread_id,
-        user_id="evaluation_user"
-    )
+    # Get the answer from the chatbot and capture the full result
+    # We need to call the agent directly to get the full execution result
+    from langchain_core.messages import HumanMessage
+    from src.infrastructure.storage.checkpointing.manager import get_checkpointer_manager
     
-    # Get retrieved documents by directly calling the retrieval service
-    # This ensures we have access to the documents for evaluation
-    vector_store = get_vector_store("hr")
-    retrieval_service = RetrievalService(vector_store)
+    messages = [HumanMessage(content=question)]
+    inputs_dict = {"messages": messages}
+    config = get_checkpointer_manager().get_config(thread_id, "evaluation_user")
     
-    # Retrieve documents (using same k as the tool would)
-    _, artifact = retrieval_service.retrieve(query=question, k=6)
+    # Invoke agent to get full result (including tool calls)
+    result = chatbot.agent.invoke(inputs_dict, config=config)
     
-    # Convert artifact to Document objects for consistency
-    documents = [
-        Document(
-            page_content=doc["content"],
-            metadata=doc["metadata"]
-        )
-        for doc in artifact
-    ]
+    # Extract answer from result
+    answer = chatbot._extract_response(result)
+    
+    # Try to extract documents from agent execution result
+    documents = _extract_documents_from_agent_result(result)
+    
+    # If extraction failed, fall back to direct retrieval
+    if not documents:
+        logger.debug("Falling back to direct retrieval for documents")
+        retrieval_service = _get_retrieval_service()
+        # Retrieve documents (using same k as the tool would)
+        _, artifact = retrieval_service.retrieve(query=question, k=6)
+        
+        # Convert artifact to Document objects for consistency
+        documents = [
+            Document(
+                page_content=doc["content"],
+                metadata=doc["metadata"]
+            )
+            for doc in artifact
+        ]
     
     return {
         "answer": answer,

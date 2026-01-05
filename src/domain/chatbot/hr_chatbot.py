@@ -2,7 +2,7 @@
 HR Chatbot - Minimal implementation using refactored ChatbotAgent architecture.
 All configuration comes from hr_chatbot.yaml via ChatbotConfigManager.
 """
-from src.domain.chatbot.core.agent import ChatbotAgent
+from src.domain.chatbot.core.chatbot_agent import ChatbotAgent
 
 
 class HRChatbot(ChatbotAgent):
@@ -26,6 +26,11 @@ class HRChatbot(ChatbotAgent):
     
     def _get_chatbot_type(self) -> str:
         """Return the chatbot type identifier."""
+        return "hr"
+    
+    @classmethod
+    def _get_chatbot_type_class(cls) -> str:
+        """Return the chatbot type identifier without instantiation."""
         return "hr"
     
     @classmethod
