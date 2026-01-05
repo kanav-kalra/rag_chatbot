@@ -1,19 +1,53 @@
-# RAG chatbot
+# RAG Chatbot
 
 A Python application combining FastAPI backend with Streamlit frontend for RAG (Retrieval-Augmented Generation) chatbot functionality.
 
 ## Project Structure
 
+The project follows clean architecture principles with clear separation of concerns:
+
 ```
-app/
-├── main.py                 # Main entry point (FastAPI + Streamlit launcher)
-├── streamlit_app.py        # Streamlit main page
-├── pages/                  # Streamlit multi-page structure
-│   ├── 1_📊_Dashboard.py
-│   ├── 2_🔧_API_Explorer.py
-│   └── 3_⚙️_Settings.py
-├── api/                    # FastAPI routes
-└── core/                   # Configuration
+rag_chatbot/
+├── src/                          # Main application source code
+│   ├── main.py                   # Application entry point (FastAPI + Streamlit launcher)
+│   ├── domain/                   # Domain layer (business logic, entities)
+│   │   ├── chatbot/             # Chatbot domain
+│   │   │   ├── core/            # Core chatbot framework
+│   │   │   │   ├── agent.py     # ChatbotAgent base class
+│   │   │   │   ├── config.py    # ChatbotConfigManager
+│   │   │   │   ├── prompts.py   # ChatbotPromptBuilder
+│   │   │   │   └── tools.py     # ChatbotToolFactory
+│   │   │   └── hr_chatbot.py    # HRChatbot implementation
+│   │   ├── memory/              # Memory domain
+│   │   ├── retrieval/           # Retrieval domain
+│   │   └── session/             # Session domain
+│   ├── application/             # Application layer (use cases, orchestration)
+│   │   ├── chatbot/             # Chatbot use cases
+│   │   └── ingestion/           # Ingestion use cases
+│   ├── infrastructure/          # Infrastructure layer (external concerns)
+│   │   ├── llm/                 # LLM providers
+│   │   ├── vectorstore/         # Vector store implementations
+│   │   └── storage/             # Storage implementations
+│   ├── api/                     # API layer (presentation)
+│   │   ├── middleware/          # API middleware
+│   │   └── v1/                  # API v1 routes
+│   ├── ui/                      # UI layer (Streamlit)
+│   │   └── pages/               # Streamlit pages
+│   └── shared/                  # Shared utilities
+│       ├── config/               # Configuration
+│       ├── memory/               # Memory config
+│       └── dependencies/         # Dependency injection
+├── scripts/                      # Scripts and tools
+│   ├── ingestion/               # Ingestion scripts
+│   └── jobs/                    # Background jobs
+├── config/                       # Configuration files
+│   └── chatbot/                 # Chatbot configs
+│       └── prompts/              # Prompt templates
+├── data/                         # Data directories
+│   ├── vectorstores/             # Vector store data
+│   └── logs/                     # Application logs
+├── evaluations/                  # Evaluation code
+└── docs/                         # Documentation
 ```
 
 ## Installation
@@ -35,19 +69,19 @@ pip install -r requirements.txt
 
 Run both applications (default):
 ```bash
-python -m app.main
+python -m src.main
 # or
-python -m app.main --app both
+python -m src.main --app both
 ```
 
 Run only FastAPI:
 ```bash
-python -m app.main --app fastapi
+python -m src.main --app fastapi
 ```
 
 Run only Streamlit:
 ```bash
-python -m app.main --app streamlit
+python -m src.main --app streamlit
 ```
 
 ### Method 2: Using Cursor/VS Code
@@ -64,7 +98,7 @@ python -m app.main --app streamlit
    - Run the commands from Method 1
 
 3. **Using Run Button**:
-   - Right-click on `app/main.py`
+   - Right-click on `src/main.py`
    - Select "Run Python File in Terminal"
    - Add arguments in the terminal if needed
 
@@ -72,13 +106,13 @@ python -m app.main --app streamlit
 
 ```bash
 # Run both
-python -m app.main --app both
+python -m src.main --app both
 
 # Run FastAPI only
-python -m app.main --app fastapi
+python -m src.main --app fastapi
 
 # Run Streamlit only
-python -m app.main --app streamlit
+python -m src.main --app streamlit
 ```
 
 ## Accessing the Applications
@@ -135,16 +169,53 @@ The `OPENAI_API_KEY` is required for the document loader's memory builder functi
 
 **Note:** The `.env` file is already in `.gitignore` to keep your API key secure. Never commit your API key to version control.
 
+## Architecture
+
+The project follows **Clean Architecture** principles:
+
+- **Domain Layer** (`src/domain/`): Core business logic, entities, and domain models. No dependencies on external frameworks.
+- **Application Layer** (`src/application/`): Use cases and orchestration logic. Coordinates domain objects.
+- **Infrastructure Layer** (`src/infrastructure/`): External services (LLM providers, vector stores, storage).
+- **API Layer** (`src/api/`): FastAPI routes and middleware.
+- **UI Layer** (`src/ui/`): Streamlit application.
+- **Shared** (`src/shared/`): Common utilities and configuration.
+
 ## Adding New Streamlit Pages
 
-To add a new page, create a file in `app/pages/` with the format:
+To add a new page, create a file in `src/ui/pages/` with the format:
 ```
-N_🎯_Page_Name.py
+dashboard.py
+api_explorer.py
+settings.py
+chatbot.py
 ```
 
-Where:
-- `N` is a number for ordering
-- `🎯` is an emoji icon (optional)
-- `Page_Name` is the page name (use underscores)
+Pages are automatically discovered by Streamlit based on filename.
 
-Example: `4_📝_Notes.py`
+## Configuration
+
+Chatbot configurations are stored in YAML files in `config/chatbot/`:
+- `hr_chatbot.yaml`: HR chatbot configuration
+- `prompts/default.yaml`: Default prompts
+- `prompts/hr_chatbot.yaml`: HR chatbot prompts
+
+## Data Directories
+
+- `data/vectorstores/`: Vector store data (ChromaDB)
+- `data/logs/`: Application logs
+
+## Scripts
+
+Ingestion and utility scripts are in `scripts/`:
+- `scripts/ingestion/`: Scripts for creating and managing vector stores
+- `scripts/jobs/`: Background job scripts
+
+## Migration from Old Structure
+
+If you're migrating from the old `app/` structure, see `MIGRATION_GUIDE.md` for details.
+
+## Documentation
+
+- `MIGRATION_GUIDE.md`: Guide for migrating from old structure
+- `docs/guides/`: Architecture and usage guides
+- `docs/design/`: Design documents
