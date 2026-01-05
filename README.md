@@ -1,221 +1,202 @@
 # RAG Chatbot
 
-A Python application combining FastAPI backend with Streamlit frontend for RAG (Retrieval-Augmented Generation) chatbot functionality.
+A production-ready Python application combining FastAPI backend with Streamlit frontend for RAG (Retrieval-Augmented Generation) chatbot functionality. Built with clean architecture principles, supporting multiple chatbot types with shared agent pools for efficient resource management.
+
+## Quick Start
+
+1. **Install dependencies**:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+2. **Configure environment**:
+   ```bash
+   cp .env-sample .env
+   # Edit .env and add your API keys
+   ```
+
+3. **Run the application**:
+   ```bash
+   python -m src.main
+   ```
+
+4. **Access the applications**:
+   - FastAPI: http://localhost:8000
+   - FastAPI Docs: http://localhost:8000/docs
+   - Streamlit: http://localhost:8501
+
+## Features
+
+- ✅ **Multi-Chatbot Support**: Easy to create new chatbot types (HR, Support, etc.)
+- ✅ **RAG (Retrieval-Augmented Generation)**: Document-based Q&A with vector search
+- ✅ **Session Management**: Automatic session handling with Redis checkpointing
+- ✅ **Shared Agent Pool**: Efficient resource usage across multiple concurrent users
+- ✅ **Clean Architecture**: Separation of concerns with domain, application, infrastructure layers
+- ✅ **FastAPI Backend**: RESTful API with automatic documentation
+- ✅ **Streamlit Frontend**: Interactive UI for testing and demonstration
+- ✅ **Memory Management**: Configurable memory strategies (trim, summarize, etc.)
+- ✅ **Multiple LLM Support**: OpenAI, Anthropic, Google (Gemini), Ollama
+- ✅ **Vector Store**: ChromaDB with persistent storage
+
+## Documentation
+
+### Core Documentation
+
+- **[Architecture Guide](docs/ARCHITECTURE.md)**: System architecture, layer responsibilities, and design principles
+- **[HR Chatbot Flow](docs/HR_CHATBOT_FLOW.md)**: Detailed flow diagram and explanation of the HR chatbot request processing
+- **[Creating a New Chatbot](docs/CREATING_NEW_CHATBOT.md)**: Step-by-step guide to create a new chatbot type
+- **[API Usage Guide](docs/API_USAGE.md)**: API endpoints, examples, and client usage
+- **[Configuration Guide](docs/CONFIGURATION.md)**: Environment variables, YAML configs, and settings
+- **[Vector Store Management](docs/VECTOR_STORE.md)**: Creating, managing, and updating vector stores
+- **[Session Management](docs/SESSION_MANAGEMENT.md)**: Session lifecycle, headers, and shared agent pool
+
+### Additional Guides
+
+- **[Shared Agent Pool](SHARED_AGENT_POOL.md)**: Details about the shared agent pool architecture
+- **[Memory Management](MEMORY_MANAGEMENT_GUIDE.md)**: Memory management strategies and configuration
+- **[Retrieval Service Design](RETRIEVAL_SERVICE_DESIGN.md)**: Retrieval service architecture
+- **[LangGraph Studio Guide](LANGGRAPH_STUDIO_GUIDE.md)**: Using LangGraph Studio for debugging
 
 ## Project Structure
-
-The project follows clean architecture principles with clear separation of concerns:
 
 ```
 rag_chatbot/
 ├── src/                          # Main application source code
-│   ├── main.py                   # Application entry point (FastAPI + Streamlit launcher)
-│   ├── domain/                   # Domain layer (business logic, entities)
-│   │   ├── chatbot/             # Chatbot domain
-│   │   │   ├── core/            # Core chatbot framework
-│   │   │   │   ├── agent.py     # ChatbotAgent base class
-│   │   │   │   ├── config.py    # ChatbotConfigManager
-│   │   │   │   ├── prompts.py   # ChatbotPromptBuilder
-│   │   │   │   └── tools.py     # ChatbotToolFactory
-│   │   │   └── hr_chatbot.py    # HRChatbot implementation
-│   │   ├── memory/              # Memory domain
-│   │   ├── retrieval/           # Retrieval domain
-│   │   └── session/             # Session domain
-│   ├── application/             # Application layer (use cases, orchestration)
-│   │   ├── chatbot/             # Chatbot use cases
-│   │   └── ingestion/           # Ingestion use cases
-│   ├── infrastructure/          # Infrastructure layer (external concerns)
-│   │   ├── llm/                 # LLM providers
-│   │   ├── vectorstore/         # Vector store implementations
-│   │   └── storage/             # Storage implementations
-│   ├── api/                     # API layer (presentation)
-│   │   ├── middleware/          # API middleware
-│   │   └── v1/                  # API v1 routes
-│   ├── ui/                      # UI layer (Streamlit)
-│   │   └── pages/               # Streamlit pages
-│   └── shared/                  # Shared utilities
-│       ├── config/               # Configuration
-│       ├── memory/               # Memory config
-│       └── dependencies/         # Dependency injection
+│   ├── main.py                   # Application entry point
+│   ├── domain/                   # Domain layer (business logic)
+│   ├── application/              # Application layer (use cases)
+│   ├── infrastructure/           # Infrastructure layer (external services)
+│   ├── api/                      # API layer (FastAPI)
+│   ├── ui/                       # UI layer (Streamlit)
+│   └── shared/                   # Shared utilities
 ├── scripts/                      # Scripts and tools
-│   ├── ingestion/               # Ingestion scripts
-│   └── jobs/                    # Background jobs
 ├── config/                       # Configuration files
-│   └── chatbot/                 # Chatbot configs
-│       └── prompts/              # Prompt templates
 ├── data/                         # Data directories
-│   ├── vectorstores/             # Vector store data
-│   └── logs/                     # Application logs
 ├── evaluations/                  # Evaluation code
 └── docs/                         # Documentation
 ```
 
+See [Architecture Guide](docs/ARCHITECTURE.md) for detailed structure.
+
 ## Installation
 
-1. Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+1. **Clone the repository** (if applicable):
+   ```bash
+   git clone <repository-url>
+   cd rag_chatbot
+   ```
 
-2. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+2. **Create a virtual environment**:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. **Install dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Set up environment variables**:
+   ```bash
+   cp .env-sample .env
+   # Edit .env and add your API keys (OPENAI_API_KEY, etc.)
+   ```
 
 ## Running the Application
 
-### Method 1: Command Line
+### Command Line
 
-Run both applications (default):
 ```bash
+# Run both applications (default)
 python -m src.main
-# or
-python -m src.main --app both
-```
 
-Run only FastAPI:
-```bash
+# Run only FastAPI
 python -m src.main --app fastapi
-```
 
-Run only Streamlit:
-```bash
+# Run only Streamlit
 python -m src.main --app streamlit
 ```
 
-### Method 2: Using Cursor/VS Code
+### Using Cursor/VS Code
 
-1. **Using Launch Configuration** (Recommended):
-   - Press `F5` or go to Run and Debug
-   - Select one of the pre-configured options:
-     - "Python: Run Both (FastAPI + Streamlit)"
-     - "Python: Run FastAPI Only"
-     - "Python: Run Streamlit Only"
+1. Press `F5` or go to Run and Debug
+2. Select one of the pre-configured options:
+   - "Python: Run Both (FastAPI + Streamlit)"
+   - "Python: Run FastAPI Only"
+   - "Python: Run Streamlit Only"
 
-2. **Using Integrated Terminal**:
-   - Open the integrated terminal (`` Ctrl+` ``)
-   - Run the commands from Method 1
-
-3. **Using Run Button**:
-   - Right-click on `src/main.py`
-   - Select "Run Python File in Terminal"
-   - Add arguments in the terminal if needed
-
-### Method 3: Direct Module Execution
-
-```bash
-# Run both
-python -m src.main --app both
-
-# Run FastAPI only
-python -m src.main --app fastapi
-
-# Run Streamlit only
-python -m src.main --app streamlit
-```
-
-## Accessing the Applications
+### Accessing the Applications
 
 - **FastAPI**: http://localhost:8000
 - **FastAPI Docs**: http://localhost:8000/docs
 - **Streamlit**: http://localhost:8501
 
-## Environment Variables
+## Quick Examples
 
-You can configure the application using environment variables:
+### Using the API
 
-```bash
-export PROJECT_NAME="My Application"
-export PORT=8000
-export STREAMLIT_PORT=8501
-export DEBUG=True
-export HOST=0.0.0.0
+```python
+import requests
 
-# Required for OpenAI embeddings and vector store functionality
-export OPENAI_API_KEY="your-openai-api-key-here"
+# Chat with HR chatbot
+response = requests.post(
+    "http://localhost:8000/api/v1/chat/",
+    json={"message": "What is the vacation policy?"}
+)
+print(response.json()["response"])
 ```
 
-### Setting OPENAI_API_KEY
+### Using the Chatbot Directly
 
-The `OPENAI_API_KEY` is required for the document loader's memory builder functionality. You can set it in several ways:
+```python
+from src.domain.chatbot.hr_chatbot import get_hr_chatbot
 
-1. **Using export command (temporary - for current terminal session):**
-   ```bash
-   export OPENAI_API_KEY="sk-your-api-key-here"
-   ```
-
-2. **Using .env file (recommended):**
-   Create a `.env` file in the project root:
-   ```bash
-   echo 'OPENAI_API_KEY=sk-your-api-key-here' > .env
-   ```
-   Then load it in your shell:
-   ```bash
-   source .env  # Note: this won't auto-load, you need to export it
-   export $(cat .env | xargs)
-   ```
-   
-   Or install `python-dotenv` and load it programmatically:
-   ```bash
-   pip install python-dotenv
-   ```
-
-3. **In your shell profile (persistent):**
-   Add to `~/.bashrc`, `~/.zshrc`, or `~/.profile`:
-   ```bash
-   export OPENAI_API_KEY="sk-your-api-key-here"
-   ```
-
-**Note:** The `.env` file is already in `.gitignore` to keep your API key secure. Never commit your API key to version control.
-
-## Architecture
-
-The project follows **Clean Architecture** principles:
-
-- **Domain Layer** (`src/domain/`): Core business logic, entities, and domain models. No dependencies on external frameworks.
-- **Application Layer** (`src/application/`): Use cases and orchestration logic. Coordinates domain objects.
-- **Infrastructure Layer** (`src/infrastructure/`): External services (LLM providers, vector stores, storage).
-- **API Layer** (`src/api/`): FastAPI routes and middleware.
-- **UI Layer** (`src/ui/`): Streamlit application.
-- **Shared** (`src/shared/`): Common utilities and configuration.
-
-## Adding New Streamlit Pages
-
-To add a new page, create a file in `src/ui/pages/` with the format:
-```
-dashboard.py
-api_explorer.py
-settings.py
-chatbot.py
+chatbot = get_hr_chatbot()
+response = chatbot.chat("Hello", thread_id="test-123")
+print(response)
 ```
 
-Pages are automatically discovered by Streamlit based on filename.
+## Next Steps
 
-## Configuration
+1. **Read the [Architecture Guide](docs/ARCHITECTURE.md)** to understand the system design
+2. **Check the [HR Chatbot Flow](docs/HR_CHATBOT_FLOW.md)** to see how requests are processed
+3. **Follow [Creating a New Chatbot](docs/CREATING_NEW_CHATBOT.md)** to build your own chatbot
+4. **Review [API Usage Guide](docs/API_USAGE.md)** for API integration examples
 
-Chatbot configurations are stored in YAML files in `config/chatbot/`:
-- `hr_chatbot_config.yaml`: HR chatbot configuration
-- `prompts/default.yaml`: Default prompts
-- `prompts/hr_chatbot.yaml`: HR chatbot prompts
+## Troubleshooting
 
-## Data Directories
+### Common Issues
 
-- `data/vectorstores/`: Vector store data (ChromaDB)
-- `data/logs/`: Application logs
+1. **Vector Store Not Found**
+   - Ensure you've created the vector store (see [Vector Store Management](docs/VECTOR_STORE.md))
+   - Check that `persist_dir` in config matches the actual location
 
-## Scripts
+2. **API Key Errors**
+   - Verify your API keys are set in `.env` file
+   - See [Configuration Guide](docs/CONFIGURATION.md) for details
 
-Ingestion and utility scripts are in `scripts/`:
-- `scripts/ingestion/`: Scripts for creating and managing vector stores
-- `scripts/jobs/`: Background job scripts
+3. **Session Not Persisting**
+   - Ensure Redis is running if using Redis checkpointing
+   - Check [Session Management](docs/SESSION_MANAGEMENT.md) guide
 
-## Migration from Old Structure
+4. **Import Errors**
+   - Ensure you're running from the project root
+   - Verify virtual environment is activated
 
-If you're migrating from the old `app/` structure, see `MIGRATION_GUIDE.md` for details.
+### Getting Help
 
-## Documentation
+- Check the logs in `data/logs/app.log`
+- Review API documentation at http://localhost:8000/docs
+- Check configuration files in `config/chatbot/`
+- See detailed guides in the `docs/` directory
 
-- `MIGRATION_GUIDE.md`: Guide for migrating from old structure
-- `docs/guides/`: Architecture and usage guides
-- `docs/design/`: Design documents
+## License
+
+[Add your license here]
+
+## Contributing
+
+[Add contributing guidelines here]
