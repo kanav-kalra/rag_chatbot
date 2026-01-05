@@ -1,5 +1,5 @@
 """
-LLM-as-Judge Evaluation for HR Chatbot using LangSmith
+HR Chatbot Evaluation - Uses Generic Evaluation Framework
 
 This script evaluates the HR chatbot on four metrics:
 1. Correctness: Response vs reference answer
@@ -7,465 +7,38 @@ This script evaluates the HR chatbot on four metrics:
 3. Relevance: Response vs input question
 4. Retrieval relevance: Retrieved docs vs input question
 
-Based on: https://docs.langchain.com/langsmith/evaluate-rag-tutorial
+This is a thin wrapper around the generic evaluation framework in evaluations.core.
 """
 import sys
-import os
 from pathlib import Path
 from typing import Dict, List, Any
-from uuid import uuid4
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from langsmith import Client, traceable
-from langchain_core.documents import Document
-
-# Handle TypedDict and Annotated imports
-# Python 3.9+ has Annotated in typing, but we use typing_extensions for compatibility
-try:
-    from typing_extensions import TypedDict, Annotated
-except ImportError:
-    # Fallback for Python 3.9+
-    from typing import TypedDict, Annotated
-
-from src.shared.config.settings import settings
 from src.shared.config.logging import logger
-from src.shared.config.langsmith import initialize_langsmith
 from src.domain.chatbot.hr_chatbot import get_hr_chatbot
-from src.domain.retrieval.service import RetrievalService
-from src.infrastructure.vectorstore.manager import get_vector_store
-from src.domain.chatbot.core.config import ChatbotConfigManager, ConfigKeys
-from src.infrastructure.llm.manager import get_llm_manager
+from evaluations.core.evaluator import ChatbotEvaluator
 
 
-# Initialize LangSmith
-initialize_langsmith(force_enable=True)
-client = Client()
-
-# Load HR chatbot config to get model settings
-_hr_config_manager = ChatbotConfigManager("hr_chatbot.yaml")
-
-# Cache chatbot instance and services to avoid repeated initialization
-_chatbot_instance = None
-_vector_store = None
-_retrieval_service = None
+# Create HR chatbot evaluator instance
+_hr_evaluator = None
 
 
-def _get_chatbot_instance():
-    """Get or create chatbot instance (singleton pattern for evaluation)."""
-    global _chatbot_instance
-    if _chatbot_instance is None:
-        _chatbot_instance = get_hr_chatbot()
-        logger.info("Initialized chatbot instance for evaluation (will be reused)")
-    return _chatbot_instance
-
-
-def _get_retrieval_service():
-    """Get or create retrieval service (singleton pattern for evaluation)."""
-    global _vector_store, _retrieval_service
-    if _retrieval_service is None:
-        _vector_store = get_vector_store("hr")
-        _retrieval_service = RetrievalService(_vector_store)
-    return _retrieval_service
-
-
-def _extract_documents_from_agent_result(result: Any) -> List[Document]:
-    """
-    Extract retrieved documents from agent execution result.
-    
-    The agent's tool calls with response_format="content_and_artifact" store
-    the artifact in ToolMessage objects. The artifact is typically in the
-    response_metadata or as a structured attribute.
-    
-    Args:
-        result: Agent invocation result (dict with "messages" key)
-        
-    Returns:
-        List of Document objects, or empty list if extraction fails
-    """
-    try:
-        from langchain_core.messages import ToolMessage
-        
-        if not isinstance(result, dict) or "messages" not in result:
-            return []
-        
-        documents = []
-        messages = result["messages"]
-        
-        # Look for ToolMessage objects that contain artifacts from retrieval tool
-        for message in messages:
-            # Check if it's a ToolMessage (from tool execution)
-            is_tool_message = (
-                isinstance(message, ToolMessage) or
-                (isinstance(message, dict) and message.get("type") == "tool")
-            )
-            
-            if not is_tool_message:
-                continue
-            
-            # Try multiple ways to extract the artifact
-            
-            # Method 1: Check response_metadata for artifact
-            response_metadata = None
-            if hasattr(message, 'response_metadata'):
-                response_metadata = message.response_metadata
-            elif isinstance(message, dict):
-                response_metadata = message.get('response_metadata', {})
-            
-            if response_metadata and 'artifact' in response_metadata:
-                artifact = response_metadata['artifact']
-                if isinstance(artifact, list) and artifact:
-                    if isinstance(artifact[0], dict) and 'content' in artifact[0]:
-                        for doc_data in artifact:
-                            documents.append(
-                                Document(
-                                    page_content=doc_data.get('content', ''),
-                                    metadata=doc_data.get('metadata', {})
-                                )
-                            )
-                        if documents:
-                            logger.debug(f"Extracted {len(documents)} documents from response_metadata")
-                            return documents
-            
-            # Method 2: Check if content is the artifact (list of dicts)
-            content = message.content if hasattr(message, 'content') else message.get('content', '')
-            
-            if isinstance(content, list) and content:
-                # Check if it looks like an artifact (list of dicts with 'content' and 'metadata')
-                if isinstance(content[0], dict) and 'content' in content[0]:
-                    for doc_data in content:
-                        documents.append(
-                            Document(
-                                page_content=doc_data.get('content', ''),
-                                metadata=doc_data.get('metadata', {})
-                            )
-                        )
-                    if documents:
-                        logger.debug(f"Extracted {len(documents)} documents from content (list)")
-                        return documents
-            
-            # Method 3: Try parsing content as JSON string
-            if isinstance(content, str) and content.strip().startswith('['):
-                try:
-                    import json
-                    parsed = json.loads(content)
-                    if isinstance(parsed, list) and parsed:
-                        if isinstance(parsed[0], dict) and 'content' in parsed[0]:
-                            for doc_data in parsed:
-                                documents.append(
-                                    Document(
-                                        page_content=doc_data.get('content', ''),
-                                        metadata=doc_data.get('metadata', {})
-                                    )
-                                )
-                            if documents:
-                                logger.debug(f"Extracted {len(documents)} documents from JSON content")
-                                return documents
-                except (json.JSONDecodeError, ValueError, KeyError):
-                    pass
-            
-            # Method 4: Check for artifact attribute directly
-            if hasattr(message, 'artifact'):
-                artifact = message.artifact
-                if isinstance(artifact, list) and artifact:
-                    if isinstance(artifact[0], dict) and 'content' in artifact[0]:
-                        for doc_data in artifact:
-                            documents.append(
-                                Document(
-                                    page_content=doc_data.get('content', ''),
-                                    metadata=doc_data.get('metadata', {})
-                                )
-                            )
-                        if documents:
-                            logger.debug(f"Extracted {len(documents)} documents from artifact attribute")
-                            return documents
-        
-        # If we couldn't extract from tool messages, return empty list
-        logger.debug("Could not extract documents from agent execution, will retrieve separately")
-        return []
-        
-    except Exception as e:
-        logger.warning(f"Error extracting documents from agent result: {e}")
-        return []
-
-
-@traceable()
-def hr_chatbot_wrapper(inputs: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Wrapper function for HR chatbot that returns both answer and retrieved documents.
-    This is needed for evaluation as we need access to both the response and the documents.
-    
-    Args:
-        inputs: Dictionary with "question" key
-        
-    Returns:
-        Dictionary with "answer" and "documents" keys
-    """
-    question = inputs["question"]
-    
-    # Get HR chatbot instance (reused from cache/pool)
-    chatbot = _get_chatbot_instance()
-    
-    # Generate a unique thread_id for this evaluation run
-    thread_id = f"eval_{uuid4().hex[:8]}"
-    
-    # Get the answer from the chatbot and capture the full result
-    # We need to call the agent directly to get the full execution result
-    from langchain_core.messages import HumanMessage
-    from src.infrastructure.storage.checkpointing.manager import get_checkpointer_manager
-    
-    messages = [HumanMessage(content=question)]
-    inputs_dict = {"messages": messages}
-    config = get_checkpointer_manager().get_config(thread_id, "evaluation_user")
-    
-    # Invoke agent to get full result (including tool calls)
-    result = chatbot.agent.invoke(inputs_dict, config=config)
-    
-    # Extract answer from result
-    answer = chatbot._extract_response(result)
-    
-    # Try to extract documents from agent execution result
-    documents = _extract_documents_from_agent_result(result)
-    
-    # If extraction failed, fall back to direct retrieval
-    if not documents:
-        logger.debug("Falling back to direct retrieval for documents")
-        retrieval_service = _get_retrieval_service()
-        # Retrieve documents (using same k as the tool would)
-        _, artifact = retrieval_service.retrieve(query=question, k=6)
-        
-        # Convert artifact to Document objects for consistency
-        documents = [
-            Document(
-                page_content=doc["content"],
-                metadata=doc["metadata"]
-            )
-            for doc in artifact
-        ]
-    
-    return {
-        "answer": answer,
-        "documents": documents
-    }
-
-
-# Grade output schemas for each evaluator
-class CorrectnessGrade(TypedDict):
-    """Schema for correctness evaluation"""
-    explanation: Annotated[str, ..., "Explain your reasoning for the score"]
-    correct: Annotated[bool, ..., "True if the answer is correct, False otherwise."]
-
-
-class RelevanceGrade(TypedDict):
-    """Schema for relevance evaluation"""
-    explanation: Annotated[str, ..., "Explain your reasoning for the score"]
-    relevant: Annotated[
-        bool, ..., "Provide the score on whether the answer addresses the question"
-    ]
-
-
-class GroundedGrade(TypedDict):
-    """Schema for groundedness evaluation"""
-    explanation: Annotated[str, ..., "Explain your reasoning for the score"]
-    grounded: Annotated[
-        bool, ..., "Provide the score on if the answer hallucinates from the documents"
-    ]
-
-
-class RetrievalRelevanceGrade(TypedDict):
-    """Schema for retrieval relevance evaluation"""
-    explanation: Annotated[str, ..., "Explain your reasoning for the score"]
-    relevant: Annotated[
-        bool,
-        ...,
-        "True if the retrieved documents are relevant to the question, False otherwise",
-    ]
-
-
-# Grader LLMs - Use model from HR chatbot config
-# Get model configuration from hr_chatbot.yaml
-grader_model_name = _hr_config_manager.get(ConfigKeys.MODEL_NAME) or settings.CHAT_MODEL
-grader_temperature = _hr_config_manager.get(ConfigKeys.MODEL_TEMPERATURE)
-if grader_temperature is not None:
-    grader_temperature = float(grader_temperature)
-else:
-    grader_temperature = 0  # Use 0 for evaluation (more deterministic)
-
-logger.info(f"Using model from HR chatbot config for graders: {grader_model_name} (temperature: {grader_temperature})")
-
-# Use LLM manager to create the grader LLM (respects model configuration)
-# This ensures we use the same model provider as configured in hr_chatbot.yaml
-llm_manager = get_llm_manager()
-grader_llm = llm_manager.get_llm(
-    model_name=grader_model_name,
-    temperature=grader_temperature,
-    max_tokens=None,  # Let model use default for evaluation
-    use_cache=False  # Don't cache evaluation LLMs
-)
-
-# Note: Structured output might not work the same way with all models
-# If it fails, we may need to adjust the evaluation approach
-try:
-    correctness_llm = grader_llm.with_structured_output(
-        CorrectnessGrade, method="json_schema", strict=True
-    )
-    relevance_llm = grader_llm.with_structured_output(
-        RelevanceGrade, method="json_schema", strict=True
-    )
-    grounded_llm = grader_llm.with_structured_output(
-        GroundedGrade, method="json_schema", strict=True
-    )
-    retrieval_relevance_llm = grader_llm.with_structured_output(
-        RetrievalRelevanceGrade, method="json_schema", strict=True
-    )
-    logger.info("Successfully created structured output graders")
-except Exception as e:
-    logger.warning(f"Failed to create structured output graders: {e}")
-    logger.info("Falling back to regular LLM calls (may need manual parsing)")
-    # Fallback: use regular LLM and parse responses manually if needed
-    correctness_llm = relevance_llm = grounded_llm = retrieval_relevance_llm = grader_llm
-
-
-# Evaluator prompts
-CORRECTNESS_INSTRUCTIONS = """You are a teacher grading a quiz. You will be given a QUESTION, the GROUND TRUTH (correct) ANSWER, and the STUDENT ANSWER. Here is the grade criteria to follow:
-(1) Grade the student answers based ONLY on their factual accuracy relative to the ground truth answer. (2) Ensure that the student answer does not contain any conflicting statements.
-(3) It is OK if the student answer contains more information than the ground truth answer, as long as it is factually accurate relative to the ground truth answer.
-
-Correctness:
-A correctness value of True means that the student's answer meets all of the criteria.
-A correctness value of False means that the student's answer does not meet all of the criteria.
-
-Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. Avoid simply stating the correct answer at the outset."""
-
-RELEVANCE_INSTRUCTIONS = """You are a teacher grading a quiz. You will be given a QUESTION and a STUDENT ANSWER. Here is the grade criteria to follow:
-(1) Ensure the STUDENT ANSWER is concise and relevant to the QUESTION
-(2) Ensure the STUDENT ANSWER helps to answer the QUESTION
-
-Relevance:
-A relevance value of True means that the student's answer meets all of the criteria.
-A relevance value of False means that the student's answer does not meet all of the criteria.
-
-Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. Avoid simply stating the correct answer at the outset."""
-
-GROUNDED_INSTRUCTIONS = """You are a teacher grading a quiz. You will be given FACTS and a STUDENT ANSWER. Here is the grade criteria to follow:
-(1) Ensure the STUDENT ANSWER is grounded in the FACTS. (2) Ensure the STUDENT ANSWER does not contain "hallucinated" information outside the scope of the FACTS.
-
-Grounded:
-A grounded value of True means that the student's answer meets all of the criteria.
-A grounded value of False means that the student's answer does not meet all of the criteria.
-
-Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. Avoid simply stating the correct answer at the outset."""
-
-RETRIEVAL_RELEVANCE_INSTRUCTIONS = """You are a teacher grading a quiz. You will be given a QUESTION and a set of FACTS provided by the student. Here is the grade criteria to follow:
-(1) You goal is to identify FACTS that are completely unrelated to the QUESTION
-(2) If the facts contain ANY keywords or semantic meaning related to the question, consider them relevant
-(3) It is OK if the facts have SOME information that is unrelated to the question as long as (2) is met
-
-Relevance:
-A relevance value of True means that the FACTS contain ANY keywords or semantic meaning related to the QUESTION and are therefore relevant.
-A relevance value of False means that the FACTS are completely unrelated to the QUESTION.
-
-Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. Avoid simply stating the correct answer at the outset."""
-
-
-# Evaluator functions
-def correctness(inputs: Dict[str, Any], outputs: Dict[str, Any], reference_outputs: Dict[str, Any]) -> bool:
-    """
-    Evaluator for RAG answer accuracy.
-    Compares the generated answer against a ground truth reference answer.
-    
-    Args:
-        inputs: Input dictionary with "question" key
-        outputs: Output dictionary with "answer" key
-        reference_outputs: Reference dictionary with "answer" key
-        
-    Returns:
-        True if the answer is correct, False otherwise
-    """
-    answers = f"""\
-QUESTION: {inputs['question']}
-GROUND TRUTH ANSWER: {reference_outputs['answer']}
-STUDENT ANSWER: {outputs['answer']}"""
-    
-    # Run evaluator
-    grade = correctness_llm.invoke([
-        {"role": "system", "content": CORRECTNESS_INSTRUCTIONS},
-        {"role": "user", "content": answers},
-    ])
-    
-    return grade["correct"]
-
-
-def relevance(inputs: Dict[str, Any], outputs: Dict[str, Any]) -> bool:
-    """
-    Evaluator for RAG answer helpfulness and relevance.
-    Checks if the answer addresses the question without requiring a reference answer.
-    
-    Args:
-        inputs: Input dictionary with "question" key
-        outputs: Output dictionary with "answer" key
-        
-    Returns:
-        True if the answer is relevant, False otherwise
-    """
-    answer = f"QUESTION: {inputs['question']}\nSTUDENT ANSWER: {outputs['answer']}"
-    
-    grade = relevance_llm.invoke([
-        {"role": "system", "content": RELEVANCE_INSTRUCTIONS},
-        {"role": "user", "content": answer},
-    ])
-    
-    return grade["relevant"]
-
-
-def groundedness(inputs: Dict[str, Any], outputs: Dict[str, Any]) -> bool:
-    """
-    Evaluator for RAG answer groundedness.
-    Checks if the answer is based on the retrieved documents and doesn't hallucinate.
-    
-    Args:
-        inputs: Input dictionary with "question" key
-        outputs: Output dictionary with "answer" and "documents" keys
-        
-    Returns:
-        True if the answer is grounded, False otherwise
-    """
-    doc_string = "\n\n".join(doc.page_content for doc in outputs["documents"])
-    answer = f"FACTS: {doc_string}\nSTUDENT ANSWER: {outputs['answer']}"
-    
-    grade = grounded_llm.invoke([
-        {"role": "system", "content": GROUNDED_INSTRUCTIONS},
-        {"role": "user", "content": answer},
-    ])
-    
-    return grade["grounded"]
-
-
-def retrieval_relevance(inputs: Dict[str, Any], outputs: Dict[str, Any]) -> bool:
-    """
-    Evaluator for document relevance.
-    Checks if the retrieved documents are relevant to the question.
-    
-    Args:
-        inputs: Input dictionary with "question" key
-        outputs: Output dictionary with "documents" key
-        
-    Returns:
-        True if the documents are relevant, False otherwise
-    """
-    doc_string = "\n\n".join(doc.page_content for doc in outputs["documents"])
-    answer = f"FACTS: {doc_string}\nQUESTION: {inputs['question']}"
-    
-    # Run evaluator
-    grade = retrieval_relevance_llm.invoke([
-        {"role": "system", "content": RETRIEVAL_RELEVANCE_INSTRUCTIONS},
-        {"role": "user", "content": answer},
-    ])
-    
-    return grade["relevant"]
+def _get_hr_evaluator() -> ChatbotEvaluator:
+    """Get or create HR chatbot evaluator instance (singleton pattern)."""
+    global _hr_evaluator
+    if _hr_evaluator is None:
+        _hr_evaluator = ChatbotEvaluator(
+            chatbot_getter=get_hr_chatbot,
+            chatbot_type="hr",
+            config_filename="hr_chatbot_config.yaml",
+            retrieval_k=6
+        )
+        logger.info("Initialized HR chatbot evaluator")
+    return _hr_evaluator
 
 
 def create_evaluation_dataset(
@@ -474,7 +47,7 @@ def create_evaluation_dataset(
     overwrite: bool = False
 ) -> str:
     """
-    Create or get a LangSmith dataset for evaluation.
+    Create or get a LangSmith dataset for HR chatbot evaluation.
     
     Args:
         dataset_name: Name of the dataset
@@ -484,42 +57,12 @@ def create_evaluation_dataset(
     Returns:
         Dataset name (for use in evaluation)
     """
-    if examples is None:
-        # Default examples - you should replace these with your actual HR policy questions
-        examples = [
-            {
-                "inputs": {"question": "What is the notice period for employees?"},
-                "outputs": {"answer": "The notice period varies by grade and employment type. Please refer to the HR policy document for specific details."},
-            },
-            {
-                "inputs": {"question": "What are the leave policies?"},
-                "outputs": {"answer": "Leave policies include annual leave, sick leave, and other types. Specific details can be found in the HR policy document."},
-            },
-        ]
-    
-    # Check if dataset exists
-    if not client.has_dataset(dataset_name=dataset_name):
-        dataset = client.create_dataset(dataset_name=dataset_name)
-        client.create_examples(
-            dataset_id=dataset.id,
-            examples=examples
-        )
-        logger.info(f"Created dataset '{dataset_name}' with {len(examples)} examples")
-    else:
-        if overwrite:
-            # Delete existing dataset and create new one
-            existing_dataset = client.read_dataset(dataset_name=dataset_name)
-            client.delete_dataset(dataset_id=existing_dataset.id)
-            dataset = client.create_dataset(dataset_name=dataset_name)
-            client.create_examples(
-                dataset_id=dataset.id,
-                examples=examples
-            )
-            logger.info(f"Overwritten dataset '{dataset_name}' with {len(examples)} examples")
-        else:
-            logger.info(f"Dataset '{dataset_name}' already exists - using existing dataset")
-    
-    return dataset_name
+    evaluator = _get_hr_evaluator()
+    return evaluator.create_evaluation_dataset(
+        dataset_name=dataset_name,
+        examples=examples,
+        overwrite=overwrite
+    )
 
 
 def run_evaluation(
@@ -533,60 +76,17 @@ def run_evaluation(
     Args:
         dataset_name: Name of the dataset (if None, will create default)
         experiment_prefix: Prefix for the experiment name in LangSmith
-        examples: List of examples for the dataset (if None, uses defaults)
+        examples: List of examples for the dataset (if None, uses existing dataset)
         
     Returns:
         Evaluation results
     """
-    # Create or get dataset
-    # If examples are provided, create/update the dataset with those examples
-    # If no examples and no dataset_name, create default dataset
-    if examples is not None:
-        # Examples provided - create/update dataset with these examples
-        if dataset_name is None:
-            dataset_name = "HR Chatbot Q&A"  # Default name
-        dataset_name = create_evaluation_dataset(dataset_name=dataset_name, examples=examples)
-    elif dataset_name is None:
-        # No examples and no dataset name - create default dataset
-        dataset_name = create_evaluation_dataset(examples=examples)
-    # else: dataset_name provided but no examples - use existing dataset
-    
-    logger.info(f"Starting evaluation with dataset: {dataset_name}")
-    
-    # Run evaluation
-    experiment_results = client.evaluate(
-        hr_chatbot_wrapper,
-        data=dataset_name,
-        evaluators=[correctness, groundedness, relevance, retrieval_relevance],
+    evaluator = _get_hr_evaluator()
+    return evaluator.run_evaluation(
+        dataset_name=dataset_name,
         experiment_prefix=experiment_prefix,
-        metadata={
-            "version": "HR Chatbot RAG Evaluation",
-            "chatbot_model": _hr_config_manager.get(ConfigKeys.MODEL_NAME) or settings.CHAT_MODEL,
-            "chatbot_temperature": _hr_config_manager.get(ConfigKeys.MODEL_TEMPERATURE) or settings.CHAT_MODEL_TEMPERATURE,
-            "grader_model": grader_model_name,
-            "grader_temperature": grader_temperature,
-        },
+        examples=examples
     )
-    
-    logger.info("Evaluation completed successfully!")
-    # Log experiment name if available
-    if hasattr(experiment_results, 'experiment_name'):
-        logger.info(f"Experiment name: {experiment_results.experiment_name}")
-    elif hasattr(experiment_results, 'experiment_url'):
-        logger.info(f"Results available in LangSmith: {experiment_results.experiment_url}")
-    else:
-        logger.info("Results available in LangSmith. Check your LangSmith dashboard for details.")
-    
-    # Try to convert to pandas if available
-    try:
-        import pandas as pd
-        df = experiment_results.to_pandas()
-        logger.info("\nEvaluation Summary:")
-        logger.info(f"\n{df.to_string()}")
-        return experiment_results, df
-    except ImportError:
-        logger.info("pandas not available, skipping DataFrame conversion")
-        return experiment_results, None
 
 
 if __name__ == "__main__":
@@ -679,4 +179,3 @@ if __name__ == "__main__":
         else:
             print("View full results in your LangSmith dashboard")
         print("="*80)
-

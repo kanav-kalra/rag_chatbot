@@ -108,8 +108,11 @@ def build_vectorstore_from_pdfs(
     """
     try:
         # Construct config filename from chatbot type
-        # Note: Config files are named {chatbot_type}_chatbot.yaml (not {chatbot_type}_chatbot_config.yaml)
-        config_filename = f"{chatbot_type}_chatbot.yaml"
+        # Note: HR chatbot uses hr_chatbot_config.yaml, others use {chatbot_type}_chatbot.yaml
+        if chatbot_type == "hr":
+            config_filename = "hr_chatbot_config.yaml"
+        else:
+            config_filename = f"{chatbot_type}_chatbot.yaml"
         
         # Load configuration from YAML
         try:
