@@ -14,7 +14,7 @@ if str(project_root) not in sys.path:
 
 from app.core.logging import logger
 from app.core.memory_config import MemoryConfig, MemoryStrategy
-from app.infra.llm.llm_manager import get_llm
+from app.infra.llm.llm_manager import get_llm_manager
 
 
 class MemoryManager:
@@ -32,7 +32,7 @@ class MemoryManager:
         self.config = config
         self._summarize_llm = None
         if config.summarize_model:
-            self._summarize_llm = get_llm(model_name=config.summarize_model)
+            self._summarize_llm = get_llm_manager().get_llm(model_name=config.summarize_model)
     
     def process_messages(
         self,
@@ -199,7 +199,7 @@ class MemoryManager:
                 llm = self._summarize_llm
                 model_name = self.config.summarize_model or "custom model"
             else:
-                llm = get_llm()
+                llm = get_llm_manager().get_llm()
                 model_name = "default chat model"
             
             logger.info(f"Using {model_name} for summarization")

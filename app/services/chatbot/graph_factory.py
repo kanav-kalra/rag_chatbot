@@ -23,7 +23,7 @@ import yaml
 
 from app.core.config import settings
 from app.core.logging import logger
-from app.infra.llm.llm_manager import get_llm
+from app.infra.llm.llm_manager import get_llm_manager
 from app.services.retrieval.retrieval_service import RetrievalService
 from app.infra.vectorstore import get_vector_store
 
@@ -48,7 +48,7 @@ def _create_hr_chatbot_graph():
     """
     try:
         # Get LLM using settings
-        llm = get_llm(
+        llm = get_llm_manager().get_llm(
             model_name=settings.CHAT_MODEL,
             temperature=settings.CHAT_MODEL_TEMPERATURE,
             max_tokens=settings.CHAT_MODEL_MAX_TOKENS
@@ -106,7 +106,7 @@ def _create_default_chatbot_graph():
     """
     try:
         # Get LLM using settings
-        llm = get_llm(
+        llm = get_llm_manager().get_llm(
             model_name=settings.CHAT_MODEL,
             temperature=settings.CHAT_MODEL_TEMPERATURE,
             max_tokens=settings.CHAT_MODEL_MAX_TOKENS

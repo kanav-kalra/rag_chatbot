@@ -1,10 +1,16 @@
 """
 LLM Manager - Factory class for creating and managing multiple LLM instances
-Supports different LLM providers and allows multiple instances for different use cases
+Refactored to follow SOLID principles:
+- Single Responsibility: Each class has one reason to change
+- Open/Closed: Extensible via provider registry pattern
+- Liskov Substitution: Abstractions allow interchangeable implementations
+- Interface Segregation: Focused interfaces for specific responsibilities
+- Dependency Inversion: Depend on abstractions, not concrete implementations
 """
 import sys
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Protocol
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent.parent
@@ -40,168 +46,545 @@ from app.core.config import settings
 from app.core.logging import logger
 
 
-# Model configurations
-MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
-    "gpt-4": {
-        "provider": "openai",
-        "model_name": "gpt-4",
-        "class": ChatOpenAI,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-    },
-    "gpt-4-turbo": {
-        "provider": "openai",
-        "model_name": "gpt-4-turbo-preview",
-        "class": ChatOpenAI,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-    },
-    "gpt-4o": {
-        "provider": "openai",
-        "model_name": "gpt-4o",
-        "class": ChatOpenAI,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-    },
-    "gpt-3.5-turbo": {
-        "provider": "openai",
-        "model_name": "gpt-3.5-turbo",
-        "class": ChatOpenAI,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-    },
-    "claude-3-opus": {
-        "provider": "anthropic",
-        "model_name": "claude-3-opus-20240229",
-        "class": ChatAnthropic if ANTHROPIC_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-anthropic",
-    },
-    "claude-3-sonnet": {
-        "provider": "anthropic",
-        "model_name": "claude-3-sonnet-20240229",
-        "class": ChatAnthropic if ANTHROPIC_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-anthropic",
-    },
-    "claude-3-haiku": {
-        "provider": "anthropic",
-        "model_name": "claude-3-haiku-20240307",
-        "class": ChatAnthropic if ANTHROPIC_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-anthropic",
-    },
-    "llama2": {
-        "provider": "ollama",
-        "model_name": "llama2",
-        "class": ChatOllama if OLLAMA_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-ollama",
-    },
-    "llama3": {
-        "provider": "ollama",
-        "model_name": "llama3",
-        "class": ChatOllama if OLLAMA_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-ollama",
-    },
-    "llama3.1": {
-        "provider": "ollama",
-        "model_name": "llama3.1",
-        "class": ChatOllama if OLLAMA_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-ollama",
-    },
-    "llama3.2": {
-        "provider": "ollama",
-        "model_name": "llama3.2",
-        "class": ChatOllama if OLLAMA_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-ollama",
-    },
-    "mistral": {
-        "provider": "ollama",
-        "model_name": "mistral",
-        "class": ChatOllama if OLLAMA_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-ollama",
-    },
-    "phi3": {
-        "provider": "ollama",
-        "model_name": "phi3",
-        "class": ChatOllama if OLLAMA_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-ollama",
-    },
-    "gemini-pro": {
-        "provider": "google",
-        "model_name": "gemini-pro",
-        "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-google-genai",
-    },
-    "gemini-1.5-flash": {
-        "provider": "google",
-        "model_name": "gemini-1.5-flash",
-        "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-google-genai",
-    },
-    "gemini-1.5-pro": {
-        "provider": "google",
-        "model_name": "gemini-1.5-pro",
-        "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-google-genai",
-    },
-    "gemini-2.5-flash": {
-        "provider": "google",
-        "model_name": "gemini-2.5-flash",
-        "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-google-genai",
-    },
-    "gemini-2.5-flash-lite": {
-        "provider": "google",
-        "model_name": "gemini-2.5-flash-lite",
-        "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-google-genai",
-    },
-    "gemini-2.5-pro": {
-        "provider": "google",
-        "model_name": "gemini-2.5-pro",
-        "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
-        "default_temperature": 0.7,
-        "default_max_tokens": 2000,
-        "requires_package": "langchain-google-genai",
-    },
-}
+# ============================================================================
+# Protocols (Abstractions) - Interface Segregation & Dependency Inversion
+# ============================================================================
 
+class APIKeyProvider(Protocol):
+    """Protocol for API key providers - allows different implementations"""
+    
+    def get_api_key(self, provider: str, override_key: Optional[str] = None) -> Optional[str]:
+        """Get API key for a provider"""
+        ...
+    
+    def validate_api_key(self, provider: str, api_key: Optional[str]) -> None:
+        """Validate that API key exists for providers that require it"""
+        ...
+
+
+class ModelConfigRepository(Protocol):
+    """Protocol for model configuration repositories"""
+    
+    def get_config(self, model_name: str) -> Dict[str, Any]:
+        """Get configuration for a model"""
+        ...
+    
+    def has_model(self, model_name: str) -> bool:
+        """Check if model exists"""
+        ...
+    
+    def list_models(self) -> List[str]:
+        """List all available models"""
+        ...
+
+
+# ============================================================================
+# Model Configuration Repository - Single Responsibility
+# ============================================================================
+
+class DefaultModelConfigRepository:
+    """
+    Manages model configurations.
+    Single Responsibility: Only responsible for storing and retrieving model configs.
+    """
+    
+    def __init__(self):
+        self._configs: Dict[str, Dict[str, Any]] = self._load_default_configs()
+    
+    def _load_default_configs(self) -> Dict[str, Dict[str, Any]]:
+        """Load default model configurations"""
+        return {
+            "gpt-4": {
+                "provider": "openai",
+                "model_name": "gpt-4",
+                "class": ChatOpenAI,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+            },
+            "gpt-4-turbo": {
+                "provider": "openai",
+                "model_name": "gpt-4-turbo-preview",
+                "class": ChatOpenAI,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+            },
+            "gpt-4o": {
+                "provider": "openai",
+                "model_name": "gpt-4o",
+                "class": ChatOpenAI,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+            },
+            "gpt-3.5-turbo": {
+                "provider": "openai",
+                "model_name": "gpt-3.5-turbo",
+                "class": ChatOpenAI,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+            },
+            "claude-3-opus": {
+                "provider": "anthropic",
+                "model_name": "claude-3-opus-20240229",
+                "class": ChatAnthropic if ANTHROPIC_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-anthropic",
+            },
+            "claude-3-sonnet": {
+                "provider": "anthropic",
+                "model_name": "claude-3-sonnet-20240229",
+                "class": ChatAnthropic if ANTHROPIC_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-anthropic",
+            },
+            "claude-3-haiku": {
+                "provider": "anthropic",
+                "model_name": "claude-3-haiku-20240307",
+                "class": ChatAnthropic if ANTHROPIC_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-anthropic",
+            },
+            "llama2": {
+                "provider": "ollama",
+                "model_name": "llama2",
+                "class": ChatOllama if OLLAMA_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-ollama",
+            },
+            "llama3": {
+                "provider": "ollama",
+                "model_name": "llama3",
+                "class": ChatOllama if OLLAMA_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-ollama",
+            },
+            "llama3.1": {
+                "provider": "ollama",
+                "model_name": "llama3.1",
+                "class": ChatOllama if OLLAMA_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-ollama",
+            },
+            "llama3.2": {
+                "provider": "ollama",
+                "model_name": "llama3.2",
+                "class": ChatOllama if OLLAMA_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-ollama",
+            },
+            "mistral": {
+                "provider": "ollama",
+                "model_name": "mistral",
+                "class": ChatOllama if OLLAMA_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-ollama",
+            },
+            "phi3": {
+                "provider": "ollama",
+                "model_name": "phi3",
+                "class": ChatOllama if OLLAMA_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-ollama",
+            },
+            "gemini-pro": {
+                "provider": "google",
+                "model_name": "gemini-pro",
+                "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-google-genai",
+            },
+            "gemini-1.5-flash": {
+                "provider": "google",
+                "model_name": "gemini-1.5-flash",
+                "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-google-genai",
+            },
+            "gemini-1.5-pro": {
+                "provider": "google",
+                "model_name": "gemini-1.5-pro",
+                "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-google-genai",
+            },
+            "gemini-2.5-flash": {
+                "provider": "google",
+                "model_name": "gemini-2.5-flash",
+                "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-google-genai",
+            },
+            "gemini-2.5-flash-lite": {
+                "provider": "google",
+                "model_name": "gemini-2.5-flash-lite",
+                "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-google-genai",
+            },
+            "gemini-2.5-pro": {
+                "provider": "google",
+                "model_name": "gemini-2.5-pro",
+                "class": ChatGoogleGenerativeAI if GOOGLE_AVAILABLE else None,
+                "default_temperature": 0.7,
+                "default_max_tokens": 2000,
+                "requires_package": "langchain-google-genai",
+            },
+        }
+    
+    def get_config(self, model_name: str) -> Dict[str, Any]:
+        """Get configuration for a model"""
+        if not self.has_model(model_name):
+            available_models = ", ".join(self.list_models())
+            raise ValueError(
+                f"Model '{model_name}' is not supported. "
+                f"Available models: {available_models}"
+            )
+        return self._configs[model_name]
+    
+    def has_model(self, model_name: str) -> bool:
+        """Check if model exists"""
+        return model_name in self._configs
+    
+    def list_models(self) -> List[str]:
+        """List all available models"""
+        return list(self._configs.keys())
+    
+    def register_model(self, model_name: str, config: Dict[str, Any]) -> None:
+        """Register a new model configuration (Open/Closed Principle)"""
+        self._configs[model_name] = config
+        logger.info(f"Registered model: {model_name}")
+
+
+# ============================================================================
+# API Key Provider - Single Responsibility & Dependency Inversion
+# ============================================================================
+
+class SettingsAPIKeyProvider:
+    """
+    Provides API keys from settings.
+    Single Responsibility: Only responsible for retrieving API keys.
+    """
+    
+    def get_api_key(self, provider: str, override_key: Optional[str] = None) -> Optional[str]:
+        """Get API key for a provider"""
+        if override_key:
+            return override_key
+        
+        provider_key_map = {
+            "openai": settings.OPENAI_API_KEY,
+            "anthropic": settings.ANTHROPIC_API_KEY,
+            "google": settings.GOOGLE_API_KEY,
+            "ollama": None,  # Ollama doesn't need API key
+        }
+        
+        return provider_key_map.get(provider)
+    
+    def validate_api_key(self, provider: str, api_key: Optional[str]) -> None:
+        """Validate that API key exists for providers that require it"""
+        if provider == "ollama":
+            return  # Ollama doesn't need API key
+        
+        if not api_key:
+            provider_names = {
+                "openai": "OpenAI",
+                "anthropic": "Anthropic",
+                "google": "Google",
+            }
+            provider_name = provider_names.get(provider, provider)
+            raise ValueError(
+                f"{provider_name} API key is required. "
+                f"Set {provider.upper()}_API_KEY environment variable."
+            )
+
+
+# ============================================================================
+# Model Provider Factory - Open/Closed Principle & Dependency Inversion
+# ============================================================================
+
+class ModelProvider(ABC):
+    """
+    Abstract base class for model providers.
+    Open/Closed Principle: New providers can be added by extending this class.
+    """
+    
+    @abstractmethod
+    def create_model(
+        self,
+        model_name: str,
+        temperature: float,
+        max_tokens: Optional[int],
+        api_key: Optional[str],
+        base_url: Optional[str],
+    ) -> BaseChatModel:
+        """Create a model instance"""
+        pass
+
+
+class OpenAIProvider(ModelProvider):
+    """Provider for OpenAI models"""
+    
+    def create_model(
+        self,
+        model_name: str,
+        temperature: float,
+        max_tokens: Optional[int],
+        api_key: Optional[str],
+        base_url: Optional[str],
+    ) -> BaseChatModel:
+        return ChatOpenAI(
+            model=model_name,
+            temperature=temperature,
+            openai_api_key=api_key,
+            max_tokens=max_tokens,
+        )
+
+
+class AnthropicProvider(ModelProvider):
+    """Provider for Anthropic models"""
+    
+    def create_model(
+        self,
+        model_name: str,
+        temperature: float,
+        max_tokens: Optional[int],
+        api_key: Optional[str],
+        base_url: Optional[str],
+    ) -> BaseChatModel:
+        if not ANTHROPIC_AVAILABLE:
+            raise ValueError(
+                "Anthropic models require the 'langchain-anthropic' package. "
+                "Please install it using: pip install langchain-anthropic"
+            )
+        return ChatAnthropic(
+            model=model_name,
+            temperature=temperature,
+            anthropic_api_key=api_key,
+            max_tokens=max_tokens,
+        )
+
+
+class GoogleProvider(ModelProvider):
+    """Provider for Google models"""
+    
+    def create_model(
+        self,
+        model_name: str,
+        temperature: float,
+        max_tokens: Optional[int],
+        api_key: Optional[str],
+        base_url: Optional[str],
+    ) -> BaseChatModel:
+        if not GOOGLE_AVAILABLE:
+            raise ValueError(
+                "Google models require the 'langchain-google-genai' package. "
+                "Please install it using: pip install langchain-google-genai"
+            )
+        return ChatGoogleGenerativeAI(
+            model=model_name,
+            temperature=temperature,
+            google_api_key=api_key,
+            max_output_tokens=max_tokens,
+        )
+
+
+class OllamaProvider(ModelProvider):
+    """Provider for Ollama models"""
+    
+    def create_model(
+        self,
+        model_name: str,
+        temperature: float,
+        max_tokens: Optional[int],
+        api_key: Optional[str],
+        base_url: Optional[str],
+    ) -> BaseChatModel:
+        if not OLLAMA_AVAILABLE:
+            raise ValueError(
+                "Ollama models require the 'langchain-ollama' package. "
+                "Please install it using: pip install langchain-ollama"
+            )
+        default_base_url = base_url or getattr(settings, 'OLLAMA_BASE_URL', 'http://localhost:11434')
+        kwargs = {
+            "model": model_name,
+            "temperature": temperature,
+            "base_url": default_base_url,
+        }
+        if max_tokens:
+            kwargs["num_predict"] = max_tokens
+        return ChatOllama(**kwargs)
+
+
+class ModelProviderFactory:
+    """
+    Factory for creating model providers.
+    Open/Closed Principle: New providers can be registered without modifying this class.
+    Dependency Inversion: Depends on ModelProvider abstraction.
+    """
+    
+    def __init__(self):
+        self._providers: Dict[str, ModelProvider] = {
+            "openai": OpenAIProvider(),
+            "anthropic": AnthropicProvider(),
+            "google": GoogleProvider(),
+            "ollama": OllamaProvider(),
+        }
+    
+    def get_provider(self, provider_name: str) -> ModelProvider:
+        """Get a provider by name"""
+        if provider_name not in self._providers:
+            available = ", ".join(self._providers.keys())
+            raise ValueError(
+                f"Provider '{provider_name}' is not supported. "
+                f"Available providers: {available}"
+            )
+        return self._providers[provider_name]
+    
+    def register_provider(self, provider_name: str, provider: ModelProvider) -> None:
+        """Register a new provider (Open/Closed Principle)"""
+        self._providers[provider_name] = provider
+        logger.info(f"Registered provider: {provider_name}")
+
+
+# ============================================================================
+# Use Case Configuration - Single Responsibility
+# ============================================================================
+
+class UseCaseConfig:
+    """
+    Manages use case specific configurations.
+    Single Responsibility: Only responsible for use case configurations.
+    """
+    
+    def __init__(self):
+        self._configs: Dict[str, Dict[str, Any]] = {
+            "qa": {
+                "temperature": 0.3,  # Lower temperature for more focused answers
+                "max_tokens": 1000,
+            },
+            "summarization": {
+                "temperature": 0.5,
+                "max_tokens": 500,
+            },
+            "classification": {
+                "temperature": 0.1,  # Very low for consistent classification
+                "max_tokens": 100,
+            },
+            "creative": {
+                "temperature": 0.9,  # Higher for creative tasks
+                "max_tokens": 2000,
+            },
+            "default": {
+                "temperature": 0.7,
+                "max_tokens": 2000,
+            }
+        }
+    
+    def get_config(self, use_case: str) -> Dict[str, Any]:
+        """Get configuration for a use case"""
+        return self._configs.get(use_case, self._configs["default"])
+    
+    def register_use_case(self, use_case: str, config: Dict[str, Any]) -> None:
+        """Register a new use case configuration"""
+        self._configs[use_case] = config
+        logger.info(f"Registered use case: {use_case}")
+
+
+# ============================================================================
+# LLM Cache - Single Responsibility
+# ============================================================================
+
+class LLMCache:
+    """
+    Manages caching of LLM instances.
+    Single Responsibility: Only responsible for caching operations.
+    """
+    
+    def __init__(self):
+        self._cache: Dict[str, BaseChatModel] = {}
+    
+    def get(self, key: str) -> Optional[BaseChatModel]:
+        """Get cached LLM instance"""
+        return self._cache.get(key)
+    
+    def set(self, key: str, llm: BaseChatModel) -> None:
+        """Cache an LLM instance"""
+        self._cache[key] = llm
+        logger.debug(f"Cached LLM instance: {key}")
+    
+    def has(self, key: str) -> bool:
+        """Check if key exists in cache"""
+        return key in self._cache
+    
+    def clear(self) -> None:
+        """Clear the cache"""
+        self._cache.clear()
+        logger.info("Cleared LLM cache")
+    
+    def get_cached_instances(self) -> Dict[str, str]:
+        """Get information about cached instances"""
+        return {
+            key: str(type(llm).__name__)
+            for key, llm in self._cache.items()
+        }
+    
+    def generate_cache_key(
+        self,
+        model_name: str,
+        temperature: Optional[float],
+        max_tokens: Optional[int],
+        base_url: Optional[str],
+    ) -> str:
+        """Generate a cache key from parameters"""
+        return f"{model_name}_{temperature}_{max_tokens}_{base_url}"
+
+
+# ============================================================================
+# LLM Manager - Orchestrator (Single Responsibility)
+# ============================================================================
 
 class LLMManager:
     """
     Manager class for creating and managing multiple LLM instances.
-    Allows different LLMs for different use cases (e.g., Q&A, summarization, classification).
+    Single Responsibility: Orchestrates components to provide LLM instances.
+    Dependency Inversion: Depends on abstractions (repositories, providers, etc.)
     """
     
-    def __init__(self):
-        """Initialize the LLM Manager with an empty cache."""
-        self._llm_cache: Dict[str, BaseChatModel] = {}
+    def __init__(
+        self,
+        config_repository: Optional[ModelConfigRepository] = None,
+        api_key_provider: Optional[APIKeyProvider] = None,
+        provider_factory: Optional[ModelProviderFactory] = None,
+        use_case_config: Optional[UseCaseConfig] = None,
+        cache: Optional[LLMCache] = None,
+    ):
+        """
+        Initialize the LLM Manager with dependencies.
+        
+        Args:
+            config_repository: Repository for model configurations (default: DefaultModelConfigRepository)
+            api_key_provider: Provider for API keys (default: SettingsAPIKeyProvider)
+            provider_factory: Factory for model providers (default: ModelProviderFactory)
+            use_case_config: Configuration for use cases (default: UseCaseConfig)
+            cache: Cache for LLM instances (default: LLMCache)
+        """
+        self._config_repository = config_repository or DefaultModelConfigRepository()
+        self._api_key_provider = api_key_provider or SettingsAPIKeyProvider()
+        self._provider_factory = provider_factory or ModelProviderFactory()
+        self._use_case_config = use_case_config or UseCaseConfig()
+        self._cache = cache or LLMCache()
         self._default_model: Optional[str] = None
     
     def get_llm(
@@ -224,7 +607,7 @@ class LLMManager:
             api_key: API key for the model provider (optional, uses env vars if not provided)
             base_url: Base URL for the model API (optional, mainly for Ollama)
             use_cache: Whether to cache the LLM instance (default: True)
-            cache_key: Custom cache key (default: model_name). Use different keys for same model with different params
+            cache_key: Custom cache key (default: auto-generated)
             
         Returns:
             BaseChatModel instance
@@ -232,26 +615,12 @@ class LLMManager:
         Raises:
             ValueError: If model is not supported or API key is missing
         """
+        # Resolve model name
         model_name = model_name or self._default_model or settings.CHAT_MODEL
         
-        if model_name not in MODEL_CONFIGS:
-            available_models = ", ".join(MODEL_CONFIGS.keys())
-            raise ValueError(
-                f"Model '{model_name}' is not supported. "
-                f"Available models: {available_models}"
-            )
-        
-        # Create cache key
-        if cache_key is None:
-            cache_key = f"{model_name}_{temperature}_{max_tokens}_{base_url}"
-        
-        # Return cached instance if available
-        if use_cache and cache_key in self._llm_cache:
-            logger.debug(f"Returning cached LLM instance: {cache_key}")
-            return self._llm_cache[cache_key]
-        
-        config = MODEL_CONFIGS[model_name]
-        provider = config["provider"]
+        # Get model configuration
+        config = self._config_repository.get_config(model_name)
+        provider_name = config["provider"]
         model_class = config["class"]
         
         # Check if model class is available
@@ -262,33 +631,13 @@ class LLMManager:
                 f"Please install it using: pip install {required_package}"
             )
         
-        # Get API key (not needed for Ollama)
-        if provider == "openai":
-            api_key = api_key or settings.OPENAI_API_KEY
-            if not api_key:
-                raise ValueError(
-                    "OpenAI API key is required. Set OPENAI_API_KEY environment variable."
-                )
-        elif provider == "anthropic":
-            api_key = api_key or settings.ANTHROPIC_API_KEY
-            if not api_key:
-                raise ValueError(
-                    "Anthropic API key is required. Set ANTHROPIC_API_KEY environment variable."
-                )
-        elif provider == "google":
-            api_key = api_key or settings.GOOGLE_API_KEY
-            if not api_key:
-                raise ValueError(
-                    "Google API key is required. Set GOOGLE_API_KEY environment variable."
-                )
-        elif provider == "ollama":
-            # Ollama doesn't need API key, but may need base_url
-            if base_url is None:
-                base_url = getattr(settings, 'OLLAMA_BASE_URL', 'http://localhost:11434')
+        # Get API key
+        resolved_api_key = self._api_key_provider.get_api_key(provider_name, api_key)
+        self._api_key_provider.validate_api_key(provider_name, resolved_api_key)
         
-        # Get model parameters
+        # Get model parameters with fallback chain
         temp = temperature if temperature is not None else (
-            settings.CHAT_MODEL_TEMPERATURE if hasattr(settings, 'CHAT_MODEL_TEMPERATURE') 
+            settings.CHAT_MODEL_TEMPERATURE if hasattr(settings, 'CHAT_MODEL_TEMPERATURE')
             else config["default_temperature"]
         )
         max_toks = max_tokens if max_tokens is not None else (
@@ -296,36 +645,33 @@ class LLMManager:
             else config["default_max_tokens"]
         )
         
-        # Create model instance
-        model_kwargs = {
-            "model": config["model_name"],
-            "temperature": temp,
-        }
+        # Generate cache key
+        if cache_key is None:
+            cache_key = self._cache.generate_cache_key(model_name, temp, max_toks, base_url)
         
-        if provider == "openai":
-            model_kwargs["openai_api_key"] = api_key
-            model_kwargs["max_tokens"] = max_toks
-        elif provider == "anthropic":
-            model_kwargs["anthropic_api_key"] = api_key
-            model_kwargs["max_tokens"] = max_toks
-        elif provider == "google":
-            model_kwargs["google_api_key"] = api_key
-            model_kwargs["max_output_tokens"] = max_toks
-        elif provider == "ollama":
-            model_kwargs["base_url"] = base_url
-            if max_toks:
-                model_kwargs["num_predict"] = max_toks
+        # Return cached instance if available
+        if use_cache and self._cache.has(cache_key):
+            logger.debug(f"Returning cached LLM instance: {cache_key}")
+            return self._cache.get(cache_key)
         
+        # Create model instance using provider factory
+        provider = self._provider_factory.get_provider(provider_name)
         try:
-            llm = model_class(**model_kwargs)
+            llm = provider.create_model(
+                model_name=config["model_name"],
+                temperature=temp,
+                max_tokens=max_toks,
+                api_key=resolved_api_key,
+                base_url=base_url,
+            )
             logger.info(
-                f"Created {provider} model: {config['model_name']} "
+                f"Created {provider_name} model: {config['model_name']} "
                 f"(temperature={temp}, max_tokens={max_toks})"
             )
             
             # Cache the instance if requested
             if use_cache:
-                self._llm_cache[cache_key] = llm
+                self._cache.set(cache_key, llm)
             
             return llm
         except Exception as e:
@@ -350,34 +696,11 @@ class LLMManager:
         Returns:
             BaseChatModel instance configured for the use case
         """
-        # Use case specific configurations
-        use_case_configs = {
-            "qa": {
-                "temperature": 0.3,  # Lower temperature for more focused answers
-                "max_tokens": 1000,
-            },
-            "summarization": {
-                "temperature": 0.5,
-                "max_tokens": 500,
-            },
-            "classification": {
-                "temperature": 0.1,  # Very low for consistent classification
-                "max_tokens": 100,
-            },
-            "creative": {
-                "temperature": 0.9,  # Higher for creative tasks
-                "max_tokens": 2000,
-            },
-            "default": {
-                "temperature": 0.7,
-                "max_tokens": 2000,
-            }
-        }
-        
-        config = use_case_configs.get(use_case, use_case_configs["default"])
+        # Get use case configuration
+        use_case_config = self._use_case_config.get_config(use_case)
         
         # Merge use case config with provided kwargs
-        merged_kwargs = {**config, **kwargs}
+        merged_kwargs = {**use_case_config, **kwargs}
         if model_name:
             merged_kwargs["model_name"] = model_name
         
@@ -387,15 +710,15 @@ class LLMManager:
         
         return self.get_llm(**merged_kwargs)
     
-    def set_default_model(self, model_name: str):
+    def set_default_model(self, model_name: str) -> None:
         """
         Set the default model name for this manager.
         
         Args:
             model_name: Name of the model to use as default
         """
-        if model_name not in MODEL_CONFIGS:
-            available_models = ", ".join(MODEL_CONFIGS.keys())
+        if not self._config_repository.has_model(model_name):
+            available_models = ", ".join(self._config_repository.list_models())
             raise ValueError(
                 f"Model '{model_name}' is not supported. "
                 f"Available models: {available_models}"
@@ -403,10 +726,9 @@ class LLMManager:
         self._default_model = model_name
         logger.info(f"Set default model to: {model_name}")
     
-    def clear_cache(self):
+    def clear_cache(self) -> None:
         """Clear the LLM instance cache."""
-        self._llm_cache.clear()
-        logger.info("Cleared LLM cache")
+        self._cache.clear()
     
     def get_cached_instances(self) -> Dict[str, str]:
         """
@@ -415,21 +737,21 @@ class LLMManager:
         Returns:
             Dictionary mapping cache keys to model names
         """
-        return {
-            key: str(type(llm).__name__) 
-            for key, llm in self._llm_cache.items()
-        }
+        return self._cache.get_cached_instances()
     
-    @staticmethod
-    def get_available_models() -> List[str]:
+    def get_available_models(self) -> List[str]:
         """
         Get list of available model names.
         
         Returns:
             List of available model names
         """
-        return list(MODEL_CONFIGS.keys())
+        return self._config_repository.list_models()
 
+
+# ============================================================================
+# Global Instance - Singleton Pattern
+# ============================================================================
 
 # Global LLM manager instance
 _global_llm_manager: Optional[LLMManager] = None
@@ -446,45 +768,3 @@ def get_llm_manager() -> LLMManager:
     if _global_llm_manager is None:
         _global_llm_manager = LLMManager()
     return _global_llm_manager
-
-
-# Convenience function for backward compatibility
-def get_llm(
-    model_name: Optional[str] = None,
-    temperature: Optional[float] = None,
-    max_tokens: Optional[int] = None,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None
-) -> BaseChatModel:
-    """
-    Convenience function to get an LLM instance using the global manager.
-    
-    Args:
-        model_name: Name of the model to use (default: from settings)
-        temperature: Temperature for the model (default: from settings or model default)
-        max_tokens: Maximum tokens for the model (default: from settings or model default)
-        api_key: API key for the model provider (optional, uses env vars if not provided)
-        base_url: Base URL for the model API (optional, mainly for Ollama)
-        
-    Returns:
-        BaseChatModel instance
-    """
-    return get_llm_manager().get_llm(
-        model_name=model_name,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        api_key=api_key,
-        base_url=base_url
-    )
-
-
-# Convenience function for getting available models
-def get_available_models() -> List[str]:
-    """
-    Get list of available model names.
-    
-    Returns:
-        List of available model names
-    """
-    return LLMManager.get_available_models()
-

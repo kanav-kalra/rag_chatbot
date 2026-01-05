@@ -25,7 +25,7 @@ from langchain.agents import create_agent
 
 from app.core.config import settings
 from app.core.logging import logger
-from app.infra.llm.llm_manager import get_llm
+from app.infra.llm.llm_manager import get_llm_manager
 from app.infra.checkpointing.checkpoint_manager import get_checkpointer
 from app.core.memory_config import MemoryConfig, MemoryStrategy, get_memory_config
 from app.services.memory.memory_manager import MemoryManager
@@ -311,7 +311,7 @@ class ChatbotAgent(ABC):
         """Initialize the LangChain agent with checkpointer and memory management."""
         try:
             # Get LLM using LLM manager
-            llm = get_llm(
+            llm = get_llm_manager().get_llm(
                 model_name=self.model_name,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
