@@ -51,6 +51,7 @@ A production-ready Python application combining FastAPI backend with Streamlit f
 - **[Configuration Guide](docs/CONFIGURATION.md)**: Environment variables, YAML configs, and settings
 - **[Vector Store Management](docs/VECTOR_STORE.md)**: Creating, managing, and updating vector stores
 - **[Session Management](docs/SESSION_MANAGEMENT.md)**: Session lifecycle, headers, and shared agent pool
+- **[Evaluation Guide](docs/EVALUATION.md)**: How to evaluate chatbots using LLM-as-Judge with LangSmith
 
 ### Additional Guides
 
@@ -165,6 +166,7 @@ print(response)
 2. **Check the [HR Chatbot Flow](docs/HR_CHATBOT_FLOW.md)** to see how requests are processed
 3. **Follow [Creating a New Chatbot](docs/CREATING_NEW_CHATBOT.md)** to build your own chatbot
 4. **Review [API Usage Guide](docs/API_USAGE.md)** for API integration examples
+5. **Learn [Evaluation Guide](docs/EVALUATION.md)** to evaluate your chatbot performance
 
 ## Troubleshooting
 
