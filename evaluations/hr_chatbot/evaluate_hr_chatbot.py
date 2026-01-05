@@ -20,7 +20,6 @@ project_root = Path(__file__).parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from langchain_openai import ChatOpenAI
 from langsmith import Client, traceable
 from langchain_core.documents import Document
 
@@ -32,17 +31,22 @@ except ImportError:
     # Fallback for Python 3.9+
     from typing import TypedDict, Annotated
 
-from app.core.config import settings
-from app.core.logging import logger
-from app.core.langsmith_config import initialize_langsmith
-from app.services.chatbot.hr_chatbot import get_hr_chatbot
-from app.services.retrieval.retrieval_service import RetrievalService
-from app.infra.vectorstore import get_vector_store
+from src.shared.config.settings import settings
+from src.shared.config.logging import logger
+from src.shared.config.langsmith import initialize_langsmith
+from src.domain.chatbot.hr_chatbot import get_hr_chatbot
+from src.domain.retrieval.service import RetrievalService
+from src.infrastructure.vectorstore.manager import get_vector_store
+from src.domain.chatbot.core.config import ChatbotConfigManager, ConfigKeys
+from src.infrastructure.llm.manager import get_llm_manager
 
 
 # Initialize LangSmith
 initialize_langsmith(force_enable=True)
 client = Client()
+
+# Load HR chatbot config to get model settings
+_hr_config_manager = ChatbotConfigManager("hr_chatbot.yaml")
 
 
 @traceable()
@@ -128,20 +132,48 @@ class RetrievalRelevanceGrade(TypedDict):
     ]
 
 
-# Grader LLMs
-grader_llm = ChatOpenAI(model="gpt-4o", temperature=0)
-correctness_llm = grader_llm.with_structured_output(
-    CorrectnessGrade, method="json_schema", strict=True
+# Grader LLMs - Use model from HR chatbot config
+# Get model configuration from hr_chatbot.yaml
+grader_model_name = _hr_config_manager.get(ConfigKeys.MODEL_NAME) or settings.CHAT_MODEL
+grader_temperature = _hr_config_manager.get(ConfigKeys.MODEL_TEMPERATURE)
+if grader_temperature is not None:
+    grader_temperature = float(grader_temperature)
+else:
+    grader_temperature = 0  # Use 0 for evaluation (more deterministic)
+
+logger.info(f"Using model from HR chatbot config for graders: {grader_model_name} (temperature: {grader_temperature})")
+
+# Use LLM manager to create the grader LLM (respects model configuration)
+# This ensures we use the same model provider as configured in hr_chatbot.yaml
+llm_manager = get_llm_manager()
+grader_llm = llm_manager.get_llm(
+    model_name=grader_model_name,
+    temperature=grader_temperature,
+    max_tokens=None,  # Let model use default for evaluation
+    use_cache=False  # Don't cache evaluation LLMs
 )
-relevance_llm = grader_llm.with_structured_output(
-    RelevanceGrade, method="json_schema", strict=True
-)
-grounded_llm = grader_llm.with_structured_output(
-    GroundedGrade, method="json_schema", strict=True
-)
-retrieval_relevance_llm = grader_llm.with_structured_output(
-    RetrievalRelevanceGrade, method="json_schema", strict=True
-)
+
+# Note: Structured output might not work the same way with all models
+# If it fails, we may need to adjust the evaluation approach
+try:
+    correctness_llm = grader_llm.with_structured_output(
+        CorrectnessGrade, method="json_schema", strict=True
+    )
+    relevance_llm = grader_llm.with_structured_output(
+        RelevanceGrade, method="json_schema", strict=True
+    )
+    grounded_llm = grader_llm.with_structured_output(
+        GroundedGrade, method="json_schema", strict=True
+    )
+    retrieval_relevance_llm = grader_llm.with_structured_output(
+        RetrievalRelevanceGrade, method="json_schema", strict=True
+    )
+    logger.info("Successfully created structured output graders")
+except Exception as e:
+    logger.warning(f"Failed to create structured output graders: {e}")
+    logger.info("Falling back to regular LLM calls (may need manual parsing)")
+    # Fallback: use regular LLM and parse responses manually if needed
+    correctness_llm = relevance_llm = grounded_llm = retrieval_relevance_llm = grader_llm
 
 
 # Evaluator prompts
@@ -376,8 +408,10 @@ def run_evaluation(
         experiment_prefix=experiment_prefix,
         metadata={
             "version": "HR Chatbot RAG Evaluation",
-            "model": settings.CHAT_MODEL,
-            "temperature": settings.CHAT_MODEL_TEMPERATURE,
+            "chatbot_model": _hr_config_manager.get(ConfigKeys.MODEL_NAME) or settings.CHAT_MODEL,
+            "chatbot_temperature": _hr_config_manager.get(ConfigKeys.MODEL_TEMPERATURE) or settings.CHAT_MODEL_TEMPERATURE,
+            "grader_model": grader_model_name,
+            "grader_temperature": grader_temperature,
         },
     )
     
