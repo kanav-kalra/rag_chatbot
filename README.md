@@ -53,12 +53,6 @@ A production-ready Python application combining FastAPI backend with Streamlit f
 - **[Session Management](docs/SESSION_MANAGEMENT.md)**: Session lifecycle, headers, and shared agent pool
 - **[Evaluation Guide](docs/EVALUATION.md)**: How to evaluate chatbots using LLM-as-Judge with LangSmith
 
-### Additional Guides
-
-- **[Shared Agent Pool](SHARED_AGENT_POOL.md)**: Details about the shared agent pool architecture
-- **[Memory Management](MEMORY_MANAGEMENT_GUIDE.md)**: Memory management strategies and configuration
-- **[Retrieval Service Design](RETRIEVAL_SERVICE_DESIGN.md)**: Retrieval service architecture
-- **[LangGraph Studio Guide](LANGGRAPH_STUDIO_GUIDE.md)**: Using LangGraph Studio for debugging
 
 ## Project Structure
 
