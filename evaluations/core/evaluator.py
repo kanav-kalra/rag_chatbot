@@ -66,46 +66,89 @@ class RetrievalRelevanceGrade(TypedDict):
     ]
 
 
+class ScannabilityGrade(TypedDict):
+    """Schema for scannability evaluation"""
+    explanation: Annotated[str, ..., "Explain your reasoning for the score"]
+    scannable: Annotated[
+        bool,
+        ...,
+        "True if the answer uses bold headers and bullet points effectively, False otherwise",
+    ]
+
+
 # Evaluator prompts
-CORRECTNESS_INSTRUCTIONS = """You are a teacher grading a quiz. You will be given a QUESTION, the GROUND TRUTH (correct) ANSWER, and the STUDENT ANSWER. Here is the grade criteria to follow:
-(1) Grade the student answers based ONLY on their factual accuracy relative to the ground truth answer. (2) Ensure that the student answer does not contain any conflicting statements.
-(3) It is OK if the student answer contains more information than the ground truth answer, as long as it is factually accurate relative to the ground truth answer.
+SCANNABILITY_INSTRUCTIONS = """You are a UX Auditor.
+STUDENT ANSWER: {student_answer}
 
-Correctness:
-A correctness value of True means that the student's answer meets all of the criteria.
-A correctness value of False means that the student's answer does not meet all of the criteria.
+Grade Criteria:
+(1) Scannability: Does the answer use **bold headers** to separate sections?
+(2) Bullet Points: Are details (like eligibility or steps) presented as bullet points? 
+(3) Negative Constraint: Fail the answer if it uses dense paragraphs to convey multiple facts or steps.
 
-Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. Avoid simply stating the correct answer at the outset."""
+Scannable: [True/False]
 
-RELEVANCE_INSTRUCTIONS = """You are a teacher grading a quiz. You will be given a QUESTION and a STUDENT ANSWER. Here is the grade criteria to follow:
-(1) Ensure the STUDENT ANSWER is concise and relevant to the QUESTION
-(2) Ensure the STUDENT ANSWER helps to answer the QUESTION
+Reasoning: Evaluate the visual structure. Does it use headers and bullets effectively?"""
+
+CORRECTNESS_INSTRUCTIONS = """You are a teacher grading a quiz. 
+QUESTION: {question}
+GROUND TRUTH: {ground_truth}
+STUDENT ANSWER: {student_answer}
+
+Grade Criteria:
+(1) Factual Accuracy: All numbers, dates, and names in the student answer must match the ground truth.
+(2) Logical Consistency: The student answer must not contain contradictory statements.
+(3) Gap Handling: If the ground truth indicates info is missing, the student is CORRECT if they admit the gap, and FALSE if they hallucinate an answer.
+
+Correctness: [True/False]
+
+Reasoning: Explain step-by-step why the answer is correct or incorrect based on the ground truth."""
+
+RELEVANCE_INSTRUCTIONS = """You are a teacher grading a quiz.
+QUESTION: {question}
+STUDENT ANSWER: {student_answer}
+
+Grade Criteria:
+(1) Relevance: Does the answer directly address the specific user intent?
+(2) Completeness: If the question is about leave, does it cover eligibility, duration, and process (as per HR policy requirements)?
+(3) Helpfulness: Does the student answer provide actionable information?
+
+Relevance: [True/False]
+
+Reasoning: Explain if the answer stayed on topic and fulfilled all parts of the user's request."""
+
+GROUNDED_INSTRUCTIONS = """You are an auditor checking for citations. 
+FACTS: {context}
+STUDENT ANSWER: {student_answer}
+
+Grade Criteria:
+(1) Grounding: Every claim must be supported by the FACTS.
+(2) Citation Format: Every claim must end with a numerical marker like [1] or [2].
+(3) No Filenames in Body: Fail the student if they include a filename (e.g., .pdf) within the body text.
+(4) Sources Section: The answer must end with a 'Sources:' list where each number corresponds to a unique filename.
+(5) Deduplication: Ensure the same filename is not listed twice in the Sources section.
+
+Grounded: [True/False]
+
+Reasoning: Identify any claims not found in the facts, or any formatting errors regarding citations."""
+
+RETRIEVAL_RELEVANCE_INSTRUCTIONS = """You are an HR Data Auditor grading a retrieval system. 
+You will be given a QUESTION and a set of FACTS (retrieved document snippets). 
+
+Grade Criteria:
+(1) Semantic Alignment: Identify if the FACTS contain keywords or concepts related to the QUESTION (e.g., if the question is about "time off," facts about "vacation," "sick leave," or "PTO" are relevant).
+(2) Topic Consistency: Check if the FACTS align with the designated HR categories (Leave, Benefits, Compensation, Onboarding, Conduct, Performance).
+(3) Keyword Match: Use the following mapping to help identify relevance:
+    - Leave: vacation, pto, accrual, carryover, sick.
+    - Benefits: insurance, 401k, wellness, eap.
+    - Compensation: salary, bonus, overtime, pay grade.
+    - Conduct: behavior, violation, ethics, reporting.
+(4) Low Bar for Relevance: It is OK if the FACTS contain some noise or unrelated text, as long as they contain the core information needed to answer the QUESTION.
 
 Relevance:
-A relevance value of True means that the student's answer meets all of the criteria.
-A relevance value of False means that the student's answer does not meet all of the criteria.
+- True: The FACTS contain keywords or semantic meaning related to the QUESTION.
+- False: The FACTS are completely unrelated to the QUESTION (e.g., a question about 'Salary' but snippets about 'Fire Safety').
 
-Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. Avoid simply stating the correct answer at the outset."""
-
-GROUNDED_INSTRUCTIONS = """You are a teacher grading a quiz. You will be given FACTS and a STUDENT ANSWER. Here is the grade criteria to follow:
-(1) Ensure the STUDENT ANSWER is grounded in the FACTS. (2) Ensure the STUDENT ANSWER does not contain "hallucinated" information outside the scope of the FACTS.
-
-Grounded:
-A grounded value of True means that the student's answer meets all of the criteria.
-A grounded value of False means that the student's answer does not meet all of the criteria.
-
-Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. Avoid simply stating the correct answer at the outset."""
-
-RETRIEVAL_RELEVANCE_INSTRUCTIONS = """You are a teacher grading a quiz. You will be given a QUESTION and a set of FACTS provided by the student. Here is the grade criteria to follow:
-(1) You goal is to identify FACTS that are completely unrelated to the QUESTION
-(2) If the facts contain ANY keywords or semantic meaning related to the question, consider them relevant
-(3) It is OK if the facts have SOME information that is unrelated to the question as long as (2) is met
-
-Relevance:
-A relevance value of True means that the FACTS contain ANY keywords or semantic meaning related to the QUESTION and are therefore relevant.
-A relevance value of False means that the FACTS are completely unrelated to the QUESTION.
-
-Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. Avoid simply stating the correct answer at the outset."""
+Explain your reasoning in a step-by-step manner. Compare the specific keywords in the QUESTION against the semantic content of the FACTS before reaching a conclusion."""
 
 
 def _extract_documents_from_agent_result(result: Any) -> List[Document]:
@@ -338,11 +381,14 @@ class ChatbotEvaluator:
             self.retrieval_relevance_llm = grader_llm.with_structured_output(
                 RetrievalRelevanceGrade, method="json_schema", strict=True
             )
+            self.scannability_llm = grader_llm.with_structured_output(
+                ScannabilityGrade, method="json_schema", strict=True
+            )
             logger.info("Successfully created structured output graders")
         except Exception as e:
             logger.warning(f"Failed to create structured output graders: {e}")
             logger.info("Falling back to regular LLM calls (may need manual parsing)")
-            self.correctness_llm = self.relevance_llm = self.grounded_llm = self.retrieval_relevance_llm = grader_llm
+            self.correctness_llm = self.relevance_llm = self.grounded_llm = self.retrieval_relevance_llm = self.scannability_llm = grader_llm
     
     def _get_chatbot_instance(self):
         """Get or create chatbot instance (singleton pattern for evaluation)."""
@@ -508,6 +554,27 @@ STUDENT ANSWER: {outputs['answer']}"""
         
         return grade["relevant"]
     
+    def scannability(self, inputs: Dict[str, Any], outputs: Dict[str, Any]) -> bool:
+        """
+        Evaluator for answer scannability and visual structure.
+        Checks if the answer uses bold headers and bullet points effectively.
+        
+        Args:
+            inputs: Input dictionary with "question" key
+            outputs: Output dictionary with "answer" key
+            
+        Returns:
+            True if the answer is scannable, False otherwise
+        """
+        answer = f"STUDENT ANSWER: {outputs['answer']}"
+        
+        grade = self.scannability_llm.invoke([
+            {"role": "system", "content": SCANNABILITY_INSTRUCTIONS},
+            {"role": "user", "content": answer},
+        ])
+        
+        return grade["scannable"]
+    
     def create_evaluation_dataset(
         self,
         dataset_name: str,
@@ -605,7 +672,8 @@ STUDENT ANSWER: {outputs['answer']}"""
                 self.correctness,
                 self.groundedness,
                 self.relevance,
-                self.retrieval_relevance
+                self.retrieval_relevance,
+                self.scannability
             ]
         
         # Get model configuration for metadata
