@@ -7,7 +7,7 @@ model:
   # Override with HR_CHAT_MODEL environment variable
   name: "gemini-2.5-flash"  # Default to Gemini 2.5 Flash
   # Override with HR_CHAT_MODEL_TEMPERATURE environment variable
-  temperature: 0.2
+  temperature: 1
   # Override with HR_CHAT_MODEL_MAX_TOKENS environment variable
   max_tokens: 2000
   base_url: null  # Optional, mainly for Ollama
@@ -16,15 +16,18 @@ model:
 vector_store:
   type: "hr"  # Default vector store type for HR
   persist_dir: "./data/vectorstores/chroma_db/hr_chatbot"  # ChromaDB persistence directory
-  collection_name: "hr_chatbot"  # ChromaDB collection name
+  collection_name: "hr_chatbot"  # Base collection name (will be auto-suffixed with provider/model, e.g., "hr_chatbot_openai_text-embedding-3-small")
   embedding_provider: "auto"  # "auto", "openai", or "google" (auto-detects based on model.name)
   embedding_model: ""  # Empty = use provider default
+  # Note: Collection names are automatically suffixed with embedding provider and model.
+  # This allows multiple embedding providers to coexist. Change embedding_provider to switch
+  # between different embeddings without recreating the vector store.
 
 # System Prompt Configuration
 # If template/agent_instructions_template are null, automatically loads from prompts_file
 # The prompts file is located at: app/services/chatbot/{prompts_file}
 system_prompt:
-  prompts_file: "hr_chatbot_prompts.yaml"  # Prompts file to load (relative to app/services/chatbot/)
+  prompts_file: "hr_chatbot_prompts.yaml"  # Prompts file to load (relative to config/chatbot/prompts/)
   template: null  # If null, uses system_prompt from prompts_file
   agent_instructions_template: null  # If null, uses agent_instructions from prompts_file
 
