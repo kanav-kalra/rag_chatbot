@@ -121,14 +121,16 @@ python scripts/ingestion/create_vectorstore.py \
 
 ## Multiple Embeddings
 
-The system supports storing multiple embeddings for the same documents:
+The system automatically supports storing multiple embeddings for the same documents:
 - Different embedding providers (OpenAI, Google)
 - Different embedding models
-- Collection names include provider/model suffix
+- **Collection names are automatically suffixed with provider/model information**
 
-Example collection names:
-- `hr_chatbot_openai_text-embedding-3-small`
-- `hr_chatbot_google_models-embedding-001`
+Example collection names (auto-generated):
+- `hr_chatbot_openai_text-embedding-3-small` (when using OpenAI)
+- `hr_chatbot_google_embedding-001` (when using Google)
+
+**Key Benefit**: You can switch embedding providers in your config without recreating embeddings. Each provider/model combination gets its own collection, allowing you to test different embeddings easily.
 
 ## Vector Store Configuration
 
@@ -138,18 +140,20 @@ Configure in chatbot YAML config:
 vector_store:
   type: "hr"
   persist_dir: "./data/vectorstores/chroma_db/hr_chatbot"
-  collection_name: "hr_chatbot"
-  embedding_provider: "auto"
-  embedding_model: ""
+  collection_name: "hr_chatbot"  # Base name (will be auto-suffixed)
+  embedding_provider: "auto"  # or "openai", "google"
+  embedding_model: ""  # Empty = use provider default
 ```
 
 ### Configuration Options
 
 - **`type`**: Must match chatbot type
 - **`persist_dir`**: Where ChromaDB stores data
-- **`collection_name`**: ChromaDB collection name
-- **`embedding_provider`**: `auto`, `openai`, or `google`
-- **`embedding_model`**: Specific model or empty for default
+- **`collection_name`**: **Base** collection name (automatically suffixed with `_{provider}_{model}`)
+- **`embedding_provider`**: `auto`, `openai`, or `google` (auto-detects based on LLM model if set to "auto")
+- **`embedding_model`**: Specific model or empty for provider default
+
+**Note**: The `collection_name` in config is treated as a base name. The system automatically appends the embedding provider and model to create the actual collection name. This allows you to switch providers by simply changing `embedding_provider` in the config - no need to recreate embeddings!
 
 ## Querying the Vector Store
 

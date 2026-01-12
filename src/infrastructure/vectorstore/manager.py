@@ -187,45 +187,34 @@ def get_vector_store_config(
                         logger.info(f"✅ Auto-detected embedding provider: google (model: {model_name})")
                     else:
                         config["embedding_provider"] = "openai"
-                        logger.error(
-                            f"❌ Auto-detection FAILED for {chatbot_type} - defaulting to openai. "
-                            f"Model name retrieved: {model_name!r} (type: {type(model_name).__name__}). "
-                            f"Expected 'gemini-*' model name. "
-                            f"Config loaded: {config_manager.has_config()}, "
-                            f"Config file: {getattr(config_manager, 'config_filename', 'unknown')}. "
-                            f"This will cause OpenAI API calls - check your config file!"
+                        logger.info(
+                            f"✅ Auto-detected embedding provider: openai (model: {model_name!r}). "
+                            f"Non-Gemini models default to OpenAI embeddings."
                         )
             
-            # Auto-generate collection name if not explicitly set or if it matches base name
-            # This supports the multiple embeddings feature from create_vectorstore.py
-            # Only auto-generate if:
-            # 1. collection_name is not set in YAML, OR
-            # 2. collection_name is set to the base chatbot_type (indicating user wants auto-generation)
+            # Always auto-generate collection name with embedding suffix
+            # This ensures different embedding providers/models use separate collections,
+            # allowing users to switch providers without recreating embeddings.
+            # The explicit collection_name from config is treated as a base name.
             base_collection_name = collection_name if collection_name else chatbot_type
-            should_auto_generate = (not collection_name) or (collection_name == chatbot_type)
             
-            if should_auto_generate:
-                # Get the actual model name that will be used
-                actual_model = get_default_embedding_model(
-                    config["embedding_provider"],
-                    config["embedding_model"]
-                )
-                
-                # Generate collection name with embedding suffix
-                config["collection_name"] = generate_collection_name(
-                    base_collection_name,
-                    config["embedding_provider"],
-                    actual_model
-                )
-                logger.info(
-                    f"Auto-generated collection name: {config['collection_name']} "
-                    f"(base: {base_collection_name}, provider: {config['embedding_provider']}, model: {actual_model})"
-                )
-            else:
-                # Use explicitly set collection name
-                logger.debug(
-                    f"Using explicit collection name from config: {config['collection_name']}"
-                )
+            # Get the actual model name that will be used
+            actual_model = get_default_embedding_model(
+                config["embedding_provider"],
+                config["embedding_model"]
+            )
+            
+            # Always generate collection name with embedding suffix
+            # This allows multiple embedding providers to coexist
+            config["collection_name"] = generate_collection_name(
+                base_collection_name,
+                config["embedding_provider"],
+                actual_model
+            )
+            logger.info(
+                f"Auto-generated collection name with embedding suffix: {config['collection_name']} "
+                f"(base: {base_collection_name}, provider: {config['embedding_provider']}, model: {actual_model})"
+            )
             
             logger.debug(f"Loaded vector store config from config_manager for {chatbot_type}")
         except Exception as e:

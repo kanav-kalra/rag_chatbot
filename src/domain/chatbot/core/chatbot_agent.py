@@ -265,6 +265,9 @@ class ChatbotAgent(ABC):
             system_prompt = prompt_builder.build_system_prompt()
         self.system_prompt = system_prompt
         
+        # Store prompt builder for topic detection
+        self._prompt_builder = ChatbotPromptBuilder(self._config_manager) if self._config_manager else None
+        
         # Get memory config
         if memory_config is not None:
             self.memory_config = memory_config
@@ -361,7 +364,8 @@ class ChatbotAgent(ABC):
         self,
         query: str,
         thread_id: str,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        topic: Optional[str] = None
     ) -> str:
         """
         Chat with the chatbot agent using checkpointer for memory management.
@@ -370,6 +374,8 @@ class ChatbotAgent(ABC):
             query: User's question
             thread_id: Thread/session identifier for maintaining conversation context
             user_id: Optional user identifier
+            topic: Optional topic identifier (e.g., "leave_policy", "benefits"). 
+                   If None, topic will be auto-detected from the query.
         
         Returns:
             Agent's response as a string
@@ -379,7 +385,14 @@ class ChatbotAgent(ABC):
             from langchain_core.messages import HumanMessage
             from src.infrastructure.storage.checkpointing.manager import get_checkpointer_manager
             
-            messages = [HumanMessage(content=query)]
+            # Detect topic if not provided
+            if topic is None and self._prompt_builder:
+                topic = self._prompt_builder.detect_topic(query)
+            
+            # Enhance query with topic-specific guidance if topic is detected
+            enhanced_query = self._enhance_query_with_topic(query, topic)
+            
+            messages = [HumanMessage(content=enhanced_query)]
             inputs = {"messages": messages}
             
             # Create config with thread_id for checkpointer
@@ -393,7 +406,7 @@ class ChatbotAgent(ABC):
             
             logger.debug(
                 f"Chat response generated (length: {len(response)} chars, "
-                f"thread_id: {thread_id})"
+                f"thread_id: {thread_id}, topic: {topic})"
             )
             return response
             
@@ -401,6 +414,28 @@ class ChatbotAgent(ABC):
             error_msg = f"Error during chat: {str(e)}"
             logger.error(error_msg, exc_info=True)
             return f"I encountered an error while processing your question: {str(e)}"
+    
+    def _enhance_query_with_topic(self, query: str, topic: Optional[str]) -> str:
+        """
+        Enhance query with topic-specific guidance if a topic is detected.
+        
+        Args:
+            query: Original user query
+            topic: Detected or provided topic identifier
+        
+        Returns:
+            Enhanced query with topic guidance prepended, or original query if no topic
+        """
+        if not topic or not self._prompt_builder:
+            return query
+        
+        topic_guidance = self._prompt_builder.get_topic_prompt(topic)
+        if topic_guidance:
+            enhanced = f"[Topic Context: {topic_guidance}]\n\nUser Question: {query}"
+            logger.debug(f"Enhanced query with topic '{topic}' guidance")
+            return enhanced
+        
+        return query
     
     def _extract_response(self, result: Any) -> str:
         """

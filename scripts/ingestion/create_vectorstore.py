@@ -143,21 +143,22 @@ def build_vectorstore_from_pdfs(
         # Get the actual model name that will be used (for collection naming)
         actual_model = get_default_embedding_model(emb_provider, emb_model)
         
-        # Generate collection name with embedding info if requested
-        if use_embedding_suffix and collection_name is None:
-            # Only auto-generate if collection_name wasn't explicitly provided
+        # Always generate collection name with embedding suffix to support multiple providers
+        # The explicit collection_name (if provided) is treated as a base name
+        if use_embedding_suffix:
             coll_name = generate_collection_name(base_coll_name, emb_provider, actual_model)
             logger.info(
                 f"Auto-generated collection name with embedding suffix: {coll_name} "
                 f"(base: {base_coll_name}, provider: {emb_provider}, model: {actual_model})"
             )
         else:
+            # Only use base name if embedding suffix is explicitly disabled
             coll_name = base_coll_name
-            if use_embedding_suffix:
-                logger.warning(
-                    f"Using explicit collection name '{coll_name}' without embedding suffix. "
-                    f"Consider using auto-generated names to support multiple embeddings."
-                )
+            logger.warning(
+                f"Using collection name '{coll_name}' without embedding suffix. "
+                f"This may cause conflicts when switching embedding providers. "
+                f"Consider enabling embedding suffix (default) to support multiple embeddings."
+            )
         
         logger.info(f"Building vector store for chatbot type: {chatbot_type}")
         logger.info(f"Using vector store config:")
