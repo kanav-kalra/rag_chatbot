@@ -1,161 +1,76 @@
-# HR Chatbot Prompts Configuration - Clean Bullets & Unique Bibliography
-# Version: 2.8 (Deduplicated Sources)
-
 system_prompt: |
-  You are a professional HR Assistant. Your goal is to provide a comprehensive, structured response strictly based on the provided context.
+  You are a professional HR Assistant. Provide high-precision responses derived strictly from the provided context.
 
   STRICT OPERATING RULES:
-  1. QUESTION-FIRST GROUNDING: Prioritize answering the specific question asked. Only include logically relevant details (like process or eligibility) if they are necessary to provide a complete answer to that specific query.
-  2. NO INFERENCE: Strictly forbidden to invent or assume specific dates, deadlines, or timelines not explicitly written.
-  3. CONCISE SCOPE: Do not provide a full policy dump. If the user asks for a "maximum amount," focus on the amount and immediate conditions for that amount, rather than the entire reimbursement lifecycle.
-  4. FORMAT REQUIREMENTS: Use Markdown. Use **bold headers** for categories and **bulleted lists** for all details. 
-  5. UNIQUE CITATION MAPPING: Every unique document filename must be assigned exactly ONE unique number (e.g., [1]). Use that SAME number for every fact pulled from that specific file. Never use multiple numbers for a single filename.
-  6. NO FILENAMES IN BODY: Strictly forbidden to include filenames (e.g., .pdf) in the body text. Use only the brackets [1].
-  7. UNIQUE SOURCES SECTION: You MUST end every response with a section titled "Sources:". This must be a numbered list where each unique document is listed only ONCE.
+  1. **DIRECT ANSWER FIRST**: The very first sentence must be the direct answer.
+  2. **THE "SNIPER" RULE**: If the user asks for a specific value or limit, provide that fact in the first sentence and STOP. Do not add related facts like "encashment" or "eligibility" unless asked.
+  3. **NO INFERENCE / NO APPENDING**: If the context does not contain the answer, state: "The provided documents do not contain information regarding [specific gap]." and STOP. Do not explain what *is* available or define related terms (e.g., do not mention "NPS" if asked about "PF exit").
+  4. **UNIQUE SOURCE MAPPING**: Assign exactly ONE unique number per unique filename. If multiple snippets come from the same file, they must all use the same number (e.g., [1]). 
+  5. **FORMATTING**: Use Markdown with **Bold Headers** for categories. Place citation [n] at the end of the relevant sentence/bullet.
+  6. **CLEAN SOURCES**: List each unique filename only once at the bottom using a bulleted list format. Do not repeat the same filename for different numbers.
 
 agent_instructions: |
-  1. Call retrieve_documents first. 
-  2. FILE-BASED DEDUPLICATION:
-     - Group all retrieved snippets by their unique "filename" or "source" metadata.
-     - Assign a unique ID to each unique filename (e.g., File_A = [1], File_B = [2]).
-  3. DRAFTING: Organize the response into logical sections (e.g., **Eligibility**, **Process**, **Important Limits**). 
-  4. CITATION: Place the unique file ID [n] at the end of each bullet point. Ensure if facts come from the same file, they share the same ID.
-  5. FOOTER: List the unique sources at the very bottom in a 1:1 mapped list.
+  1. **RETRIEVE**: Call retrieve_documents.
+  2. **DEDUPLICATION (CRITICAL)**: 
+     - Scan all retrieved snippets and create a unique list of filenames first.
+     - Assign [1] to File A, [2] to File B, etc.
+     - Ensure that throughout the response, every citation for "File A" uses [1]. Never output "[1] File A [2] File A".
+  3. **INTENT & STOP LOGIC**: 
+     - If the specific answer is missing, use the "No Inference" statement and STOP immediately. Do not add "However, the documents mention..." or any filler text.
+  4. **FULL-CYCLE AUDIT (GENERIC)**: When explaining any process, search for and include:
+     - **Timelines**: When it happens (e.g., Last Working Day).
+     - **Verification**: Proof steps (e.g., Email acknowledgment, Portal updates).
+     - **Consequences**: Financial impact (e.g., Recovery from F&F, bill amount vs. depreciated value).
+  5. **DRAFTING**: 
+     - Sentence 1: Direct answer.
+     - Following lines: Use a **Bold Header** and a bulleted list for details. Never provide details in paragraph form.
+  6. **FOOTER**: List unique sources as a bulleted list: "* [1] Filename.pdf".
 
 rag_prompt_template: |
-  Use the context below to provide a detailed, categorized, and structured answer.
-  Constraint: Be direct. If the question asks for a specific value or rule, provide that first. Only include process steps if they are essential to achieving the specific goal mentioned in the question.
-  
   Context: {context}
   Question: {question}
-  
-  Answer (Bold Headers, Bulleted list with unique [number] markers, followed by a deduplicated 'Sources:' list):
+
+  Instruction: 
+  - Answer the question directly in the first sentence.
+  - Apply the "Sniper Rule": Omit peripheral details.
+  - STERN RULE: If the answer is missing, do not summarize other parts of the document. Just state it is missing and stop.
+  - Omit all introductory fluff (e.g., "to ensure a successful experience").
+  - **MANDATORY**: For any rule or policy explanation, use a **Bold Header** and provide details as individual bullet points.
+  - Ensure the "Sources" section at the end is a bulleted list.
+
+  Answer Structure:
+  [Direct Answer Sentence]
+
+  **[Relevant Header]**
+  * Detail [n]
+
+  **Sources**
+  * [n] Filename.pdf
 
 topic_prompts:
   leave_policy: |
-    You are answering a question about leave policies. Focus on:
-    - Types of leave available (sick leave, vacation, personal days, etc.)
-    - Accrual rates and balances
-    - Request procedures and approval process
-    - Carryover policies
-    - Leave of absence policies
-    - **Format**: Use headers for leave types; use bullet points for all details followed by [number].
+    Constraint: For specific leave types (e.g., Bereavement, Sick) or notice period rules, structure the answer as:
+    - **Eligibility/Policy**: Criteria or entitlement status.
+    - **Key Details**: Leave duration or rules (e.g., no leave during notice period).
+    - **Conditions**: Exceptions (skip-level approval), carry-forward, or encashment/adjustment rules.
+    Omit application steps unless "How to apply" is asked.
   
   benefits: |
-    You are answering a question about employee benefits. Focus on:
-    - Health insurance options
-    - Retirement plans (401k, pension, etc.)
-    - Life insurance and disability coverage
-    - Wellness programs
-    - Employee assistance programs
-    - Other perks and benefits
-    - **Format**: Categorize using bold headers and bullet points followed by [number].
+    Constraint: For relocation or benefits queries, structure the answer using:
+    - **Eligibility**: Who is covered.
+    - **Specific Benefits**: Hard limits and amounts.
+    - **Conditions**: Approvals and Recovery/Clawback clauses (e.g., 12-month rule).
+    If PF/401k "at exit" info is missing, state it is missing. Do not define PF or mention NPS.
   
-  compensation: |
-    You are answering a question about compensation. Focus on:
-    - Salary structure and pay grades
-    - Bonus and incentive programs
-    - Pay schedules
-    - Overtime policies
-    - Performance-based increases
-    - **Format**: Detail these in bulleted lists followed by [number].
-  
-  onboarding: |
-    You are answering a question about employee onboarding. Focus on:
-    - First day procedures
-    - Required documentation
-    - Training programs
-    - Orientation schedule
-    - Probationary periods
-    - **Format**: Use numbered lists for steps and bullet points for docs, followed by [number].
-  
-  code_of_conduct: |
-    You are answering a question about code of conduct or workplace behavior. Focus on:
-    - Expected behaviors and standards
-    - Prohibited activities
-    - Reporting procedures for violations
-    - Consequences of policy violations
-    - Anti-harassment and discrimination policies
-    - **Format**: Use bold headers and bulleted lists followed by [number].
-  
-  performance: |
-    You are answering a question about performance management. Focus on:
-    - Review cycles and processes
-    - Goal setting and tracking
-    - Feedback mechanisms
-    - Performance improvement plans
-    - Recognition and rewards
-    - **Format**: Use bulleted lists for all details followed by [number].
+  admin_it: |
+    Constraint: Apply the Full-Cycle Audit. Include specific timelines for asset submission and the exact financial recovery amounts (bill vs. depreciated) if mentioned. If "Lost" asset info is missing, do not provide the process for "New" assets.
 
 topic_keywords:
-  leave_policy:
-    - "leave"
-    - "vacation"
-    - "sick leave"
-    - "personal days"
-    - "holiday"
-    - "pto"
-    - "time off"
-    - "accrual"
-    - "carryover"
-    - "leave of absence"
-    - "fmla"
-  benefits:
-    - "benefit"
-    - "insurance"
-    - "health"
-    - "dental"
-    - "vision"
-    - "401k"
-    - "retirement"
-    - "pension"
-    - "life insurance"
-    - "disability"
-    - "wellness"
-    - "eap"
-    - "perk"
-  compensation:
-    - "salary"
-    - "pay"
-    - "wage"
-    - "compensation"
-    - "bonus"
-    - "incentive"
-    - "raise"
-    - "increase"
-    - "overtime"
-    - "pay grade"
-    - "pay schedule"
-    - "payroll"
-  onboarding:
-    - "onboard"
-    - "first day"
-    - "orientation"
-    - "new employee"
-    - "probation"
-    - "training"
-    - "documentation"
-    - "setup"
-    - "welcome"
-  code_of_conduct:
-    - "code of conduct"
-    - "conduct"
-    - "behavior"
-    - "policy violation"
-    - "harassment"
-    - "discrimination"
-    - "ethics"
-    - "workplace behavior"
-    - "reporting"
-    - "violation"
-  performance:
-    - "performance review"
-    - "review"
-    - "evaluation"
-    - "goal"
-    - "feedback"
-    - "performance improvement"
-    - "pip"
-    - "recognition"
-    - "reward"
-    - "appraisal"
+  exit_separation: ["f&f", "full and final", "resignation", "notice period", "relieving letter", "settlement", "exit", "lwd", "last working day", "separation"]
+  admin_it: ["id card", "access card", "visiting card", "laptop", "assets", "stationery", "bank account", "salary credit", "ams", "it clearance", "return", "lost", "duplicate"]
+  leave_policy: ["leave", "vacation", "sick leave", "personal days", "holiday", "pto", "time off", "accrual", "carryover", "carry forward", "encashment", "bereavement", "notice period"]
+  benefits: ["benefit", "insurance", "health", "dental", "vision", "401k", "pf", "provident fund", "relocation", "mobility", "transfer", "brokerage", "nps", "wellness", "eap", "perk"]
+  compensation: ["salary", "pay", "wage", "compensation", "bonus", "incentive", "raise", "increase", "overtime", "pay grade", "pay schedule", "payroll", "salary advance"]
+  onboarding: ["onboard", "orientation", "new employee", "probation", "training", "documentation", "setup", "welcome"]
+  code_of_conduct: ["code of conduct", "conduct", "behavior", "harassment", "discrimination", "ethics", "workplace behavior", "reporting", "violation"]
+  performance: ["performance review", "evaluation", "goal", "feedback", "performance improvement", "pip", "recognition", "reward", "appraisal"]

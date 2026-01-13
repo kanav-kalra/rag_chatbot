@@ -76,79 +76,69 @@ class ScannabilityGrade(TypedDict):
     ]
 
 
-# Evaluator prompts
 SCANNABILITY_INSTRUCTIONS = """You are a UX Auditor.
 STUDENT ANSWER: {student_answer}
 
 Grade Criteria:
-(1) Scannability: Does the answer use **bold headers** to separate sections?
-(2) Bullet Points: Are details (like eligibility or steps) presented as bullet points? 
-(3) Negative Constraint: Fail the answer if it uses dense paragraphs to convey multiple facts or steps.
+(1) Scannability: Does the answer use **bold headers** to separate categories of info?
+(2) Bullet Points: Are factual details presented as bullet points rather than sentences? 
+(3) Directness: Does the answer provide the core fact in the very first sentence? (FAIL if it starts with filler).
 
 Scannable: [True/False]
 
-Reasoning: Evaluate the visual structure. Does it use headers and bullets effectively?"""
+Reasoning: Evaluate if the user can find the specific answer in under 3 seconds. Check for headers, bullets, and the absence of dense text."""
 
-CORRECTNESS_INSTRUCTIONS = """You are a teacher grading a quiz. 
+CORRECTNESS_INSTRUCTIONS = """You are an HR Compliance Auditor.
 QUESTION: {question}
 GROUND TRUTH: {ground_truth}
 STUDENT ANSWER: {student_answer}
 
 Grade Criteria:
-(1) Factual Accuracy: All numbers, dates, and names in the student answer must match the ground truth.
-(2) Logical Consistency: The student answer must not contain contradictory statements.
-(3) Gap Handling: If the ground truth indicates info is missing, the student is CORRECT if they admit the gap, and FALSE if they hallucinate an answer.
+(1) Factual Core: Do the specific numbers, dates, or rules match the Ground Truth?
+(2) Hallucination: Penalize only if the student includes facts that contradict the Ground Truth or materially change its meaning. Do not penalize supplemental, non-contradictory details not present in the Ground Truth.
+(3) Brevity Tolerance: Do NOT penalize the student for omitting peripheral details (like "how to apply" or "manager approval") if they were not explicitly asked for, even if they are in the Ground Truth.
+(4) Safety: Did the student admit if info was missing?
 
 Correctness: [True/False]
+Reasoning: Compare the core facts. If the student provides the correct 'Limit' but skips the 'Process' (to remain concise), mark as CORRECT."""
 
-Reasoning: Explain step-by-step why the answer is correct or incorrect based on the ground truth."""
-
-RELEVANCE_INSTRUCTIONS = """You are a teacher grading a quiz.
+RELEVANCE_INSTRUCTIONS = """You are a Teacher grading for Conciseness and Intent.
 QUESTION: {question}
 STUDENT ANSWER: {student_answer}
 
 Grade Criteria:
-(1) Relevance: Does the answer directly address the specific user intent?
-(2) Completeness: If the question is about leave, does it cover eligibility, duration, and process (as per HR policy requirements)?
-(3) Helpfulness: Does the student answer provide actionable information?
+(1) Intent Alignment: Does the answer directly address the specific user intent (e.g., if asked "How much", did they answer the amount)?
+(2) Noise Filter: FAIL the answer if it contains "Policy Dumping"—including irrelevant details like eligibility, background history, or submission processes not requested.
+(3) Actionable: Is the core answer prominent and easy to read?
 
 Relevance: [True/False]
 
-Reasoning: Explain if the answer stayed on topic and fulfilled all parts of the user's request."""
+Reasoning: Explain if the answer stayed strictly on topic. If the student provided 3 extra paragraphs of unrequested policy details, mark as FALSE for relevance."""
 
-GROUNDED_INSTRUCTIONS = """You are an auditor checking for citations. 
+GROUNDED_INSTRUCTIONS = """You are a Citation Auditor.
 FACTS: {context}
 STUDENT ANSWER: {student_answer}
 
 Grade Criteria:
-(1) Grounding: Every claim must be supported by the FACTS.
-(2) Citation Format: Every claim must end with a numerical marker like [1] or [2].
-(3) No Filenames in Body: Fail the student if they include a filename (e.g., .pdf) within the body text.
-(4) Sources Section: The answer must end with a 'Sources:' list where each number corresponds to a unique filename.
-(5) Deduplication: Ensure the same filename is not listed twice in the Sources section.
+(1) 1:1 Mapping: Exactly ONE unique number per unique filename in 'Sources'.
+(2) Attribution: Does every bullet point end with [n]?
+(3) Body Cleanliness: Are there ANY filenames (e.g., .pdf) or file paths in the body text? (FAIL if yes).
+(4) Support: Are all claims found in the FACTS?
 
 Grounded: [True/False]
+Reasoning: Check for citation consistency and ensure no "policy.pdf" text leaked into the response body."""
 
-Reasoning: Identify any claims not found in the facts, or any formatting errors regarding citations."""
-
-RETRIEVAL_RELEVANCE_INSTRUCTIONS = """You are an HR Data Auditor grading a retrieval system. 
-You will be given a QUESTION and a set of FACTS (retrieved document snippets). 
+RETRIEVAL_RELEVANCE_INSTRUCTIONS = """You are an HR Data Auditor. 
+QUESTION: {question}
+FACTS: {context}
 
 Grade Criteria:
-(1) Semantic Alignment: Identify if the FACTS contain keywords or concepts related to the QUESTION (e.g., if the question is about "time off," facts about "vacation," "sick leave," or "PTO" are relevant).
-(2) Topic Consistency: Check if the FACTS align with the designated HR categories (Leave, Benefits, Compensation, Onboarding, Conduct, Performance).
-(3) Keyword Match: Use the following mapping to help identify relevance:
-    - Leave: vacation, pto, accrual, carryover, sick.
-    - Benefits: insurance, 401k, wellness, eap.
-    - Compensation: salary, bonus, overtime, pay grade.
-    - Conduct: behavior, violation, ethics, reporting.
-(4) Low Bar for Relevance: It is OK if the FACTS contain some noise or unrelated text, as long as they contain the core information needed to answer the QUESTION.
+(1) Topical Alignment: Do the FACTS belong to the same HR category as the QUESTION?
+(2) Signal Presence: If the question asks for a 'Formula' and the FACTS contain 'F&F Process' but no formula, mark as TRUE for retrieval (the system found the right document).
+(3) Failure: ONLY mark as False if the FACTS are completely unrelated (e.g., user asks about 'Salary' but snippets are about 'Harassment').
+Relevance: [True/False]
 
-Relevance:
-- True: The FACTS contain keywords or semantic meaning related to the QUESTION.
-- False: The FACTS are completely unrelated to the QUESTION (e.g., a question about 'Salary' but snippets about 'Fire Safety').
-
-Explain your reasoning in a step-by-step manner. Compare the specific keywords in the QUESTION against the semantic content of the FACTS before reaching a conclusion."""
+Reasoning: Identify the specific keywords in the QUESTION and confirm if the retrieved FACTS contain the corresponding values or rules."""
 
 
 def _extract_documents_from_agent_result(result: Any) -> List[Document]:
