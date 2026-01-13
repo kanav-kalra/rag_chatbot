@@ -17,8 +17,8 @@ vector_store:
   type: "hr"  # Default vector store type for HR
   persist_dir: "./data/vectorstores/chroma_db/hr_chatbot"  # ChromaDB persistence directory
   collection_name: "hr_chatbot"  # Base collection name (will be auto-suffixed with provider/model, e.g., "hr_chatbot_openai_text-embedding-3-small")
-  embedding_provider: "auto"  # "auto", "openai", or "google" (auto-detects based on model.name)
-  embedding_model: ""  # Empty = use provider default
+  embedding_provider: "google"  # "auto", "openai", or "google" (auto-detects based on model.name)
+  embedding_model: "models/embedding-001"  # Empty = use provider default
   # Note: Collection names are automatically suffixed with embedding provider and model.
   # This allows multiple embedding providers to coexist. Change embedding_provider to switch
   # between different embeddings without recreating the vector store.
