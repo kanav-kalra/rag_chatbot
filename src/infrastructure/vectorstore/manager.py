@@ -110,118 +110,102 @@ def get_vector_store_config(
     """
     Get vector store configuration for a chatbot type.
     
-    If config_manager is provided, reads configuration from it (preferred method).
-    Otherwise, falls back to sensible defaults based on chatbot_type.
+    Requires config_manager to be provided. Fails if config cannot be loaded.
     
     Args:
         chatbot_type: Type of chatbot (e.g., "hr", "default", "support")
-        config_manager: Optional ChatbotConfigManager instance with loaded config
+        config_manager: ChatbotConfigManager instance with loaded config (required)
         
     Returns:
         Dictionary with vector store configuration:
             - persist_dir: Directory path for ChromaDB persistence
             - collection_name: ChromaDB collection name
             - store_type: Type of vector store ("chroma" or "memory")
-            - embedding_provider: Embedding provider ("openai", "google", or "auto")
+            - embedding_provider: Embedding provider ("openai" or "google", required)
             - embedding_model: Embedding model name (empty = use provider default)
+            
+    Raises:
+        ValueError: If config_manager is not provided or config cannot be loaded
     """
-    # Default configuration
+    if config_manager is None:
+        raise ValueError(
+            f"config_manager is required for chatbot type '{chatbot_type}'. "
+            f"Vector store configuration must be loaded from config file."
+        )
+    
+    if not config_manager.has_config():
+        raise ValueError(
+            f"Config manager for '{chatbot_type}' has no loaded config. "
+            f"Ensure the config file exists and was loaded successfully."
+        )
+    
+    # Read vector store config from YAML
+    persist_dir = config_manager.get("vector_store.persist_dir")
+    collection_name = config_manager.get("vector_store.collection_name")
+    embedding_provider = config_manager.get("vector_store.embedding_provider")
+    embedding_model = config_manager.get("vector_store.embedding_model")
+    
+    if not persist_dir:
+        raise ValueError(
+            f"vector_store.persist_dir is required in config for '{chatbot_type}'"
+        )
+    if not collection_name:
+        raise ValueError(
+            f"vector_store.collection_name is required in config for '{chatbot_type}'"
+        )
+    if embedding_provider is None:
+        raise ValueError(
+            f"vector_store.embedding_provider is required in config for '{chatbot_type}'"
+        )
+    
+    # Validate embedding_provider value
+    valid_providers = ["openai", "google"]
+    if embedding_provider not in valid_providers:
+        raise ValueError(
+            f"Invalid embedding_provider '{embedding_provider}' for '{chatbot_type}'. "
+            f"Must be one of: {', '.join(valid_providers)}. "
+            f"'auto' is not supported - set embedding_provider explicitly."
+        )
+    
+    logger.debug(
+        f"Reading vector store config for {chatbot_type}: "
+        f"persist_dir={persist_dir}, collection_name={collection_name}, "
+        f"embedding_provider={embedding_provider}, embedding_model={embedding_model}"
+    )
+    
     config = {
-        "persist_dir": f"./data/vectorstores/chroma_db/{chatbot_type}",
-        "collection_name": chatbot_type,
+        "persist_dir": persist_dir,
+        "collection_name": collection_name,
         "store_type": "chroma",
-        "embedding_provider": "openai",
-        "embedding_model": ""
+        "embedding_provider": embedding_provider,
+        "embedding_model": embedding_model or ""
     }
     
-    # If config_manager is provided, read from it (preferred method)
-    if config_manager:
-        try:
-            # Read vector store config from YAML
-            persist_dir = config_manager.get("vector_store.persist_dir")
-            collection_name = config_manager.get("vector_store.collection_name")
-            embedding_provider = config_manager.get("vector_store.embedding_provider")
-            embedding_model = config_manager.get("vector_store.embedding_model")
-            
-            logger.debug(
-                f"Reading vector store config for {chatbot_type}: "
-                f"persist_dir={persist_dir}, collection_name={collection_name}, "
-                f"embedding_provider={embedding_provider}, embedding_model={embedding_model}, "
-                f"config_manager.has_config={config_manager.has_config()}"
-            )
-            
-            if persist_dir:
-                config["persist_dir"] = persist_dir
-            if collection_name:
-                config["collection_name"] = collection_name
-            if embedding_provider is not None:
-                config["embedding_provider"] = embedding_provider
-            if embedding_model is not None:
-                config["embedding_model"] = embedding_model
-            
-            # Auto-detect embedding provider based on chat model if set to "auto"
-            if config["embedding_provider"] == "auto":
-                # Check if config is loaded
-                if not config_manager.has_config():
-                    logger.warning(
-                        f"Auto-detection failed for {chatbot_type}: Config manager has no loaded config. "
-                        f"Defaulting to openai. Check if config file was loaded correctly."
-                    )
-                    config["embedding_provider"] = "openai"
-                else:
-                    # Try to get model name - use both the ConfigKeys constant and direct string
-                    model_name = config_manager.get(ConfigKeys.MODEL_NAME)
-                    # Also try direct access as fallback
-                    if not model_name:
-                        model_name = config_manager.get("model.name")
-                    
-                    logger.info(
-                        f"Auto-detecting embedding provider for {chatbot_type}: "
-                        f"model_name={model_name}, ConfigKeys.MODEL_NAME={ConfigKeys.MODEL_NAME}, "
-                        f"config_manager.has_config={config_manager.has_config()}, "
-                        f"config_filename={getattr(config_manager, 'config_filename', 'unknown')}"
-                    )
-                    
-                    if model_name and isinstance(model_name, str) and model_name.lower().startswith("gemini"):
-                        config["embedding_provider"] = "google"
-                        logger.info(f"✅ Auto-detected embedding provider: google (model: {model_name})")
-                    else:
-                        config["embedding_provider"] = "openai"
-                        logger.info(
-                            f"✅ Auto-detected embedding provider: openai (model: {model_name!r}). "
-                            f"Non-Gemini models default to OpenAI embeddings."
-                        )
-            
-            # Always auto-generate collection name with embedding suffix
-            # This ensures different embedding providers/models use separate collections,
-            # allowing users to switch providers without recreating embeddings.
-            # The explicit collection_name from config is treated as a base name.
-            base_collection_name = collection_name if collection_name else chatbot_type
-            
-            # Get the actual model name that will be used
-            actual_model = get_default_embedding_model(
-                config["embedding_provider"],
-                config["embedding_model"]
-            )
-            
-            # Always generate collection name with embedding suffix
-            # This allows multiple embedding providers to coexist
-            config["collection_name"] = generate_collection_name(
-                base_collection_name,
-                config["embedding_provider"],
-                actual_model
-            )
-            logger.info(
-                f"Auto-generated collection name with embedding suffix: {config['collection_name']} "
-                f"(base: {base_collection_name}, provider: {config['embedding_provider']}, model: {actual_model})"
-            )
-            
-            logger.debug(f"Loaded vector store config from config_manager for {chatbot_type}")
-        except Exception as e:
-            logger.warning(f"Error reading vector store config from config_manager: {e}. Using defaults.")
-    else:
-        # No config_manager provided - use defaults
-        logger.debug(f"No config_manager provided for {chatbot_type}, using defaults")
+    # Always auto-generate collection name with embedding suffix
+    # This ensures different embedding providers/models use separate collections,
+    # allowing users to switch providers without recreating embeddings.
+    # The explicit collection_name from config is treated as a base name.
+    base_collection_name = collection_name
+    
+    # Get the actual model name that will be used
+    actual_model = get_default_embedding_model(
+        config["embedding_provider"],
+        config["embedding_model"]
+    )
+    
+    # Always generate collection name with embedding suffix
+    # This allows multiple embedding providers to coexist
+    config["collection_name"] = generate_collection_name(
+        base_collection_name,
+        config["embedding_provider"],
+        actual_model
+    )
+    logger.info(
+        f"Auto-generated collection name with embedding suffix: {config['collection_name']} "
+        f"(base: {base_collection_name}, provider: {config['embedding_provider']}, model: {actual_model})"
+    )
+    
+    logger.debug(f"Loaded vector store config from config_manager for {chatbot_type}")
     
     return config
 
@@ -381,6 +365,55 @@ def load_chroma_vector_store(
         # The actual error will be caught when trying to use the vector store
         logger.warning(f"Could not verify embedding dimensions: {e}")
     
+    # Check if collection exists before trying to load it
+    if not CHROMADB_AVAILABLE:
+        raise RuntimeError("chromadb package is required")
+    
+    client = chromadb.PersistentClient(path=persist_directory)
+    try:
+        existing_collection = client.get_collection(name=collection_name)
+        collection_exists = True
+    except Exception:
+        collection_exists = False
+    
+    if not collection_exists:
+        # List available collections to help diagnose
+        try:
+            available_collections = client.list_collections()
+            collections_with_data = [c for c in available_collections if c.count() > 0]
+            
+            error_msg = (
+                f"ChromaDB collection '{collection_name}' does not exist in persist directory: {persist_directory}\n"
+                f"Available collections:\n"
+            )
+            for coll in available_collections:
+                coll_count = coll.count()
+                error_msg += f"  - {coll.name}: {coll_count} documents\n"
+            
+            if collections_with_data:
+                error_msg += (
+                    f"\nCollections with data:\n"
+                )
+                for coll in collections_with_data:
+                    error_msg += f"  - {coll.name}: {coll.count()} documents\n"
+                error_msg += (
+                    f"\nPossible solutions:\n"
+                    f"  1. Re-index documents to create collection '{collection_name}'\n"
+                    f"  2. Check if embedding_provider/model in config matches the indexed collection\n"
+                )
+            else:
+                error_msg += "\nNo collections with data found. Please run the vector store creation job to populate it."
+            
+            raise ValueError(error_msg)
+        except ValueError:
+            # Re-raise our custom error
+            raise
+        except Exception as list_error:
+            raise ValueError(
+                f"ChromaDB collection '{collection_name}' does not exist in persist directory: {persist_directory}. "
+                f"Please run the vector store creation job to create it."
+            ) from list_error
+    
     try:
         vector_store = Chroma(
             collection_name=collection_name,
@@ -423,14 +456,50 @@ def load_chroma_vector_store(
     try:
         count = vector_store._collection.count()
         if count == 0:
-            raise ValueError(
-                f"ChromaDB collection '{collection_name}' exists but is empty. "
-                f"Please run the vector store creation job to populate it."
-            )
+            # List available collections to help diagnose the issue
+            try:
+                client = chromadb.PersistentClient(path=persist_directory)
+                available_collections = client.list_collections()
+                collection_names = [c.name for c in available_collections]
+                collections_with_data = [c for c in available_collections if c.count() > 0]
+                
+                error_msg = (
+                    f"ChromaDB collection '{collection_name}' exists but is empty (0 documents).\n"
+                    f"Available collections in this persist directory:\n"
+                )
+                for coll in available_collections:
+                    coll_count = coll.count()
+                    error_msg += f"  - {coll.name}: {coll_count} documents\n"
+                
+                if collections_with_data:
+                    error_msg += (
+                        f"\nCollections with data:\n"
+                    )
+                    for coll in collections_with_data:
+                        error_msg += f"  - {coll.name}: {coll.count()} documents\n"
+                    error_msg += (
+                        f"\nPossible solutions:\n"
+                        f"  1. Re-index documents to create collection '{collection_name}'\n"
+                        f"  2. Check if embedding_provider/model in config matches the indexed collection\n"
+                        f"  3. Clear vector store cache if you re-indexed: clear_vector_store_cache('{persist_directory.split('/')[-1]}')\n"
+                    )
+                else:
+                    error_msg += "\nNo collections with data found. Please run the vector store creation job to populate it."
+                
+                raise ValueError(error_msg)
+            except Exception as list_error:
+                # If we can't list collections, just raise the original error
+                raise ValueError(
+                    f"ChromaDB collection '{collection_name}' exists but is empty. "
+                    f"Please run the vector store creation job to populate it."
+                ) from list_error
         logger.info(
             f"Loaded ChromaDB vector store with {count} document chunks "
             f"(embedding provider: {embedding_provider}, dimension: {actual_dimension})"
         )
+    except ValueError:
+        # Re-raise ValueError (our custom error messages)
+        raise
     except Exception as e:
         logger.warning(f"Could not verify collection count: {e}")
     
@@ -447,17 +516,24 @@ def get_vector_store(
     
     Args:
         chatbot_type: Type of chatbot (e.g., "hr", "default")
-        config_manager: Optional ChatbotConfigManager instance with loaded config.
-                       If provided, vector store config will be read from it.
+        config_manager: ChatbotConfigManager instance with loaded config (required).
+                       Vector store config will be read from it.
         
     Returns:
         VectorStore instance (Chroma or InMemory)
         
     Raises:
+        ValueError: If config_manager is not provided or config cannot be loaded
         FileNotFoundError: If ChromaDB persist directory doesn't exist
-        ValueError: If collection is empty
+        ValueError: If collection is empty or not found
         RuntimeError: If vector store loading fails
     """
+    if config_manager is None:
+        raise ValueError(
+            f"config_manager is required for chatbot type '{chatbot_type}'. "
+            f"Cannot load vector store without configuration."
+        )
+    
     global _vector_stores
     
     with _vector_stores_lock:

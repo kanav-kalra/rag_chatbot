@@ -128,17 +128,18 @@ def build_vectorstore_from_pdfs(
         
         # Apply function argument overrides
         persist_dir = persist_directory or vector_store_config["persist_dir"]
-        base_coll_name = collection_name or vector_store_config["collection_name"]
-        emb_provider = embedding_provider or vector_store_config.get("embedding_provider", "auto")
+        # Get base collection name from config directly (not the generated one with suffix)
+        # This prevents double-suffixing when generate_collection_name is called again
+        base_coll_name = collection_name or config_manager.get("vector_store.collection_name")
+        emb_provider = embedding_provider or vector_store_config.get("embedding_provider")
         emb_model = embedding_model or vector_store_config.get("embedding_model") or None
         
-        # Handle "auto" embedding provider
-        if emb_provider == "auto":
-            model_name = config_manager.get("model.name", "")
-            if model_name and model_name.startswith("gemini"):
-                emb_provider = "google"
-            else:
-                emb_provider = "openai"
+        # Validate embedding provider is set
+        if not emb_provider:
+            raise ValueError(
+                f"embedding_provider is required. "
+                f"Please set vector_store.embedding_provider in {config_filename} or use --embedding-provider argument."
+            )
         
         # Get the actual model name that will be used (for collection naming)
         actual_model = get_default_embedding_model(emb_provider, emb_model)
@@ -323,7 +324,7 @@ def main():
     parser.add_argument(
         "--embedding-provider",
         type=str,
-        choices=["openai", "google", "auto"],
+        choices=["openai", "google"],
         default=None,
             help="Override embedding provider (default: from {chatbot_type}_chatbot.yaml)"
     )

@@ -66,46 +66,79 @@ class RetrievalRelevanceGrade(TypedDict):
     ]
 
 
-# Evaluator prompts
-CORRECTNESS_INSTRUCTIONS = """You are a teacher grading a quiz. You will be given a QUESTION, the GROUND TRUTH (correct) ANSWER, and the STUDENT ANSWER. Here is the grade criteria to follow:
-(1) Grade the student answers based ONLY on their factual accuracy relative to the ground truth answer. (2) Ensure that the student answer does not contain any conflicting statements.
-(3) It is OK if the student answer contains more information than the ground truth answer, as long as it is factually accurate relative to the ground truth answer.
+class ScannabilityGrade(TypedDict):
+    """Schema for scannability evaluation"""
+    explanation: Annotated[str, ..., "Explain your reasoning for the score"]
+    scannable: Annotated[
+        bool,
+        ...,
+        "True if the answer uses bold headers and bullet points effectively, False otherwise",
+    ]
 
-Correctness:
-A correctness value of True means that the student's answer meets all of the criteria.
-A correctness value of False means that the student's answer does not meet all of the criteria.
 
-Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. Avoid simply stating the correct answer at the outset."""
+SCANNABILITY_INSTRUCTIONS = """You are a UX Auditor.
+STUDENT ANSWER: {student_answer}
 
-RELEVANCE_INSTRUCTIONS = """You are a teacher grading a quiz. You will be given a QUESTION and a STUDENT ANSWER. Here is the grade criteria to follow:
-(1) Ensure the STUDENT ANSWER is concise and relevant to the QUESTION
-(2) Ensure the STUDENT ANSWER helps to answer the QUESTION
+Grade Criteria:
+(1) Scannability: Does the answer use **bold headers** to separate categories of info?
+(2) Bullet Points: Are factual details presented as bullet points rather than sentences? 
+(3) Directness: Does the answer provide the core fact in the very first sentence? (FAIL if it starts with filler).
 
-Relevance:
-A relevance value of True means that the student's answer meets all of the criteria.
-A relevance value of False means that the student's answer does not meet all of the criteria.
+Scannable: [True/False]
 
-Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. Avoid simply stating the correct answer at the outset."""
+Reasoning: Evaluate if the user can find the specific answer in under 3 seconds. Check for headers, bullets, and the absence of dense text."""
 
-GROUNDED_INSTRUCTIONS = """You are a teacher grading a quiz. You will be given FACTS and a STUDENT ANSWER. Here is the grade criteria to follow:
-(1) Ensure the STUDENT ANSWER is grounded in the FACTS. (2) Ensure the STUDENT ANSWER does not contain "hallucinated" information outside the scope of the FACTS.
+CORRECTNESS_INSTRUCTIONS = """You are an HR Compliance Auditor.
+QUESTION: {question}
+GROUND TRUTH: {ground_truth}
+STUDENT ANSWER: {student_answer}
 
-Grounded:
-A grounded value of True means that the student's answer meets all of the criteria.
-A grounded value of False means that the student's answer does not meet all of the criteria.
+Grade Criteria:
+(1) Factual Core: Do the specific numbers, dates, or rules match the Ground Truth?
+(2) Hallucination: Penalize only if the student includes facts that contradict the Ground Truth or materially change its meaning. Do not penalize supplemental, non-contradictory details not present in the Ground Truth.
+(3) Brevity Tolerance: Do NOT penalize the student for omitting peripheral details (like "how to apply" or "manager approval") if they were not explicitly asked for, even if they are in the Ground Truth.
+(4) Safety: Did the student admit if info was missing?
 
-Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. Avoid simply stating the correct answer at the outset."""
+Correctness: [True/False]
+Reasoning: Compare the core facts. If the student provides the correct 'Limit' but skips the 'Process' (to remain concise), mark as CORRECT."""
 
-RETRIEVAL_RELEVANCE_INSTRUCTIONS = """You are a teacher grading a quiz. You will be given a QUESTION and a set of FACTS provided by the student. Here is the grade criteria to follow:
-(1) You goal is to identify FACTS that are completely unrelated to the QUESTION
-(2) If the facts contain ANY keywords or semantic meaning related to the question, consider them relevant
-(3) It is OK if the facts have SOME information that is unrelated to the question as long as (2) is met
+RELEVANCE_INSTRUCTIONS = """You are a Teacher grading for Conciseness and Intent.
+QUESTION: {question}
+STUDENT ANSWER: {student_answer}
 
-Relevance:
-A relevance value of True means that the FACTS contain ANY keywords or semantic meaning related to the QUESTION and are therefore relevant.
-A relevance value of False means that the FACTS are completely unrelated to the QUESTION.
+Grade Criteria:
+(1) Intent Alignment: Does the answer directly address the specific user intent (e.g., if asked "How much", did they answer the amount)?
+(2) Noise Filter: FAIL the answer if it contains "Policy Dumping"—including irrelevant details like eligibility, background history, or submission processes not requested.
+(3) Actionable: Is the core answer prominent and easy to read?
 
-Explain your reasoning in a step-by-step manner to ensure your reasoning and conclusion are correct. Avoid simply stating the correct answer at the outset."""
+Relevance: [True/False]
+
+Reasoning: Explain if the answer stayed strictly on topic. If the student provided 3 extra paragraphs of unrequested policy details, mark as FALSE for relevance."""
+
+GROUNDED_INSTRUCTIONS = """You are a Citation Auditor.
+FACTS: {context}
+STUDENT ANSWER: {student_answer}
+
+Grade Criteria:
+(1) 1:1 Mapping: Exactly ONE unique number per unique filename in 'Sources'.
+(2) Attribution: Does every bullet point end with [n]?
+(3) Body Cleanliness: Are there ANY filenames (e.g., .pdf) or file paths in the body text? (FAIL if yes).
+(4) Support: Are all claims found in the FACTS?
+
+Grounded: [True/False]
+Reasoning: Check for citation consistency and ensure no "policy.pdf" text leaked into the response body."""
+
+RETRIEVAL_RELEVANCE_INSTRUCTIONS = """You are an HR Data Auditor. 
+QUESTION: {question}
+FACTS: {context}
+
+Grade Criteria:
+(1) Topical Alignment: Do the FACTS belong to the same HR category as the QUESTION?
+(2) Signal Presence: If the question asks for a 'Formula' and the FACTS contain 'F&F Process' but no formula, mark as TRUE for retrieval (the system found the right document).
+(3) Failure: ONLY mark as False if the FACTS are completely unrelated (e.g., user asks about 'Salary' but snippets are about 'Harassment').
+Relevance: [True/False]
+
+Reasoning: Identify the specific keywords in the QUESTION and confirm if the retrieved FACTS contain the corresponding values or rules."""
 
 
 def _extract_documents_from_agent_result(result: Any) -> List[Document]:
@@ -338,11 +371,14 @@ class ChatbotEvaluator:
             self.retrieval_relevance_llm = grader_llm.with_structured_output(
                 RetrievalRelevanceGrade, method="json_schema", strict=True
             )
+            self.scannability_llm = grader_llm.with_structured_output(
+                ScannabilityGrade, method="json_schema", strict=True
+            )
             logger.info("Successfully created structured output graders")
         except Exception as e:
             logger.warning(f"Failed to create structured output graders: {e}")
             logger.info("Falling back to regular LLM calls (may need manual parsing)")
-            self.correctness_llm = self.relevance_llm = self.grounded_llm = self.retrieval_relevance_llm = grader_llm
+            self.correctness_llm = self.relevance_llm = self.grounded_llm = self.retrieval_relevance_llm = self.scannability_llm = grader_llm
     
     def _get_chatbot_instance(self):
         """Get or create chatbot instance (singleton pattern for evaluation)."""
@@ -508,6 +544,27 @@ STUDENT ANSWER: {outputs['answer']}"""
         
         return grade["relevant"]
     
+    def scannability(self, inputs: Dict[str, Any], outputs: Dict[str, Any]) -> bool:
+        """
+        Evaluator for answer scannability and visual structure.
+        Checks if the answer uses bold headers and bullet points effectively.
+        
+        Args:
+            inputs: Input dictionary with "question" key
+            outputs: Output dictionary with "answer" key
+            
+        Returns:
+            True if the answer is scannable, False otherwise
+        """
+        answer = f"STUDENT ANSWER: {outputs['answer']}"
+        
+        grade = self.scannability_llm.invoke([
+            {"role": "system", "content": SCANNABILITY_INSTRUCTIONS},
+            {"role": "user", "content": answer},
+        ])
+        
+        return grade["scannable"]
+    
     def create_evaluation_dataset(
         self,
         dataset_name: str,
@@ -605,7 +662,8 @@ STUDENT ANSWER: {outputs['answer']}"""
                 self.correctness,
                 self.groundedness,
                 self.relevance,
-                self.retrieval_relevance
+                self.retrieval_relevance,
+                self.scannability
             ]
         
         # Get model configuration for metadata
