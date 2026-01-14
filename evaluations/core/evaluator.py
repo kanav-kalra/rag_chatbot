@@ -107,13 +107,13 @@ QUESTION: {question}
 STUDENT ANSWER: {student_answer}
 
 Grade Criteria:
-(1) Intent Alignment: Does the answer directly address the specific user intent (e.g., if asked "How much", did they answer the amount)?
-(2) Noise Filter: FAIL the answer if it contains "Policy Dumping"—including irrelevant details like eligibility, background history, or submission processes not requested.
-(3) Actionable: Is the core answer prominent and easy to read?
+(1) Intent Alignment: Does the answer directly address the specific user intent in the first sentence?
+(2) Contextual Buffer: Do NOT penalize for including "Eligibility", "Approvals", or "Limits" if they are directly related to the question (e.g., if asked about a benefit, knowing the limit is relevant).
+(3) Noise Filter: FAIL the answer ONLY if it contains "Policy Dumping"—defined as including entirely different topics (e.g., explaining 'Sick Leave' when asked about 'Maternity Leave', or listing 'How to Apply' when only asked 'How many days').
 
 Relevance: [True/False]
 
-Reasoning: Explain if the answer stayed strictly on topic. If the student provided 3 extra paragraphs of unrequested policy details, mark as FALSE for relevance."""
+Reasoning: Did the bot answer the question immediately? Is the additional information provided useful context for this specific question, or is it a generic dump of the whole document?"""
 
 GROUNDED_INSTRUCTIONS = """You are a Citation Auditor.
 FACTS: {context}
@@ -414,31 +414,35 @@ class ChatbotEvaluator:
         # Generate a unique thread_id for this evaluation run
         thread_id = f"eval_{uuid4().hex[:8]}"
         
-        # Get the answer from the chatbot and capture the full result
-        from langchain_core.messages import HumanMessage
-        from src.infrastructure.storage.checkpointing.manager import get_checkpointer_manager
+        # Call chat() method to get the answer (fully relies on chat() function)
+        # This ensures evaluation results match direct execution behavior
+        answer = chatbot.chat(
+            query=question,
+            thread_id=thread_id,
+            user_id="evaluation_user"
+        )
         
-        messages = [HumanMessage(content=question)]
-        inputs_dict = {"messages": messages}
-        config = get_checkpointer_manager().get_config(thread_id, "evaluation_user")
+        # Extract documents from checkpointer state (same documents used by chat())
+        # This ensures we evaluate against the exact documents the agent retrieved
+        documents = []
+        try:
+            from src.infrastructure.storage.checkpointing.manager import get_checkpointer_manager
+            checkpointer_manager = get_checkpointer_manager()
+            config = checkpointer_manager.get_config(thread_id, "evaluation_user")
+            checkpoint = checkpointer_manager.checkpointer.get(config)
+            
+            if checkpoint and "channel_values" in checkpoint:
+                messages = checkpoint["channel_values"].get("messages", [])
+                documents = _extract_documents_from_agent_result({"messages": messages})
+        except Exception as e:
+            logger.debug(f"Could not extract documents from checkpointer: {e}")
         
-        # Invoke agent to get full result (including tool calls)
-        result = chatbot.agent.invoke(inputs_dict, config=config)
-        
-        # Extract answer from result
-        answer = chatbot._extract_response(result)
-        
-        # Try to extract documents from agent execution result
-        documents = _extract_documents_from_agent_result(result)
-        
-        # If extraction failed, fall back to direct retrieval
+        # Fallback to direct retrieval if extraction from checkpointer failed
         if not documents:
             logger.debug("Falling back to direct retrieval for documents")
             retrieval_service = self._get_retrieval_service()
-            # Retrieve documents (using same k as the tool would)
             _, artifact = retrieval_service.retrieve(query=question, k=self.retrieval_k)
             
-            # Convert artifact to Document objects for consistency
             documents = [
                 Document(
                     page_content=doc["content"],
