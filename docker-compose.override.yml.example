@@ -1,0 +1,23 @@
+# Copy this file to docker-compose.override.yml for local development
+# This file allows you to override settings without modifying docker-compose.yml
+# docker-compose automatically loads docker-compose.override.yml if it exists
+
+version: '3.8'
+
+services:
+  app:
+    # Enable debug mode for development
+    environment:
+      - DEBUG=True
+      - LOG_LEVEL=DEBUG
+    
+    # Mount source code for hot-reload (optional)
+    # Uncomment to enable code changes without rebuilding
+    # volumes:
+    #   - ./src:/app/src
+    #   - ./config:/app/config
+    #   - ./data:/app/data
+    
+    # Override command to run only FastAPI or Streamlit
+    # command: ["python", "-m", "src.main", "--app", "fastapi"]
+    # command: ["python", "-m", "src.main", "--app", "streamlit"]
