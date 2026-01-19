@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # Redis service for session checkpointing
+  redis:
+    image: redis/redis-stack-server:latest
+    container_name: rag_chatbot_redis
+    # Port not exposed to host - app accesses via Docker network
+    # Uncomment below if you need to access Redis from host (e.g., for debugging)
+    # ports:
+    #   - "6380:6379"  # Use different host port to avoid conflicts
+    volumes:
+      - redis_data:/data
+    command: ["redis-stack-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - rag_chatbot_network
+    restart: unless-stopped
+
+  # Main application service
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag_chatbot_app
+    ports:
+      - "8000:8000"  # FastAPI
+      - "8501:8501"  # Streamlit
+    environment:
+      # Redis connection (using service name)
+      - REDIS_URL=redis://redis:6379
+      - REDIS_DB=0
+      # Server configuration
+      - HOST=0.0.0.0
+      - PORT=8000
+      - STREAMLIT_PORT=8501
+      - DEBUG=False
+      # CORS
+      - CORS_ORIGINS=*
+      # Logging
+      - LOG_LEVEL=INFO
+      # Load from .env file if it exists (override with docker-compose.override.yml)
+    env_file:
+      - .env
+    volumes:
+      # Mount data directory for persistent storage
+      - ./data:/app/data
+      # Mount config directory (read-only)
+      - ./config:/app/config:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - rag_chatbot_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  rag_chatbot_network:
+    driver: bridge
