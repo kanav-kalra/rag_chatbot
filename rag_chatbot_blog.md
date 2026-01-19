@@ -53,26 +53,26 @@ We designed the system using **Clean Architecture** to ensure separation of conc
 
 ```mermaid
 graph TD
-    User[User] --> OR[Orchestrator<br/>(FastAPI / Streamlit)]
+    User[User] --> OR[Orchestrator: FastAPI/Streamlit]
     
-    subgraph "Application Layer"
-        OR --> SM[SessionManager<br/>(src/domain/session)]
-        OR --> AP[AgentPool<br/>(src/application/chatbot)]
+    subgraph Application [Application Layer]
+        OR --> SM[SessionManager]
+        OR --> AP[AgentPool]
     end
 
-    subgraph "Domain Logic (The Brain)"
-        AP -->|Acquire| Agent[ChatbotAgent<br/>(src/domain/chatbot)]
-        Agent -->|1. Check History| Mem[MemoryManager]
-        Agent -->|2. Get Context| Ret[RetrievalService<br/>(src/domain/retrieval)]
+    subgraph Domain [Domain Logic]
+        AP -->|Acquire| Agent[ChatbotAgent]
+        Agent -->|Check History| Mem[MemoryManager]
+        Agent -->|Get Context| Ret[RetrievalService]
     end
 
-    subgraph "Infrastructure (The Plumbing)"
-        Ret -->|Query| VSM[VectorStoreManager<br/>(src/infra/vectorstore)]
+    subgraph Infrastructure [Infrastructure]
+        Ret -->|Query| VSM[VectorStoreManager]
         VSM -->|Search| Chroma[(ChromaDB)]
         
         SM -->|Load/Save| Redis[(Redis)]
         
-        Agent -->|3. Generate| LLM[LLMManager<br/>(src/infra/llm)]
+        Agent -->|Generate| LLM[LLMManager]
         LLM -->|API Call| External[OpenAI / Gemini]
     end
 
