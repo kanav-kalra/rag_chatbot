@@ -100,6 +100,10 @@ Here are the concrete numbers from our production deployment:
 *   **Vector Store**: **ChromaDB** (Fast, local or server-based vector search).
 *   **UI**: **Streamlit** (Rapid internal tooling and visualization).
 
+![HR Chatbot UI](images/hr_chatbot_ui.png)
+
+*The HR Chatbot in action: answering policy questions with structured, cited responses in 2-3 seconds.*
+
 ---
 
 ## Part 2: The Architecture (Deep Dive) 🏗️
@@ -109,33 +113,40 @@ Here are the concrete numbers from our production deployment:
 We designed the system using **Clean Architecture** to ensure separation of concerns. The diagram below maps the conceptual RAG flow directly to our codebase structure.
 
 ```mermaid
-graph TD
-    User[User] --> OR[Orchestrator: FastAPI/Streamlit]
+graph LR
+    User[👤 User] -->|Request| API[🌐 FastAPI/Streamlit]
     
-    subgraph Application [Application Layer]
-        OR --> SM[SessionManager]
-        OR --> AP[AgentPool]
-    end
-
-    subgraph Domain [Domain Logic]
-        AP -->|Acquire| Agent[ChatbotAgent]
-        Agent -->|Check History| Mem[MemoryManager]
-        Agent -->|Get Context| Ret[RetrievalService]
-    end
-
-    subgraph Infrastructure [Infrastructure]
-        Ret -->|Query| VSM[VectorStoreManager]
-        VSM -->|Search| Chroma[(ChromaDB)]
-        
-        SM -->|Load/Save| Redis[(Redis)]
-        
-        Agent -->|Generate| LLM[LLMManager]
-        LLM -->|API Call| External[OpenAI / Gemini]
-    end
-
-    Chroma -->|Docs| Ret
+    API -->|Session Lookup| SM[💾 SessionManager]
+    API -->|Get Agent| AP[🔄 AgentPool]
+    
+    AP -->|Acquire| Agent[🤖 ChatbotAgent]
+    
+    Agent -->|Load History| Mem[📝 MemoryManager]
+    Agent -->|Retrieve Context| Ret[🔍 RetrievalService]
+    
+    Ret -->|Query| VSM[📊 VectorStoreManager]
+    VSM -->|Similarity Search| Chroma[(💾 ChromaDB)]
+    
+    Chroma -->|Document Chunks| Ret
     Ret -->|Context| Agent
+    
+    Agent -->|Generate| LLM[🧠 LLMManager]
+    LLM -->|API Call| External[☁️ OpenAI / Gemini]
+    
     External -->|Response| Agent
+    Agent -->|Save State| SM
+    SM -->|Persist| Redis[(🔴 Redis)]
+    
+    Agent -->|Return| AP
+    Agent -->|Response| API
+    API -->|Answer| User
+    
+    style User fill:#e1f5ff
+    style API fill:#fff4e1
+    style Agent fill:#e8f5e9
+    style LLM fill:#f3e5f5
+    style Chroma fill:#fff9c4
+    style Redis fill:#ffebee
 ```
 
 ### Key Components mapped to Code
