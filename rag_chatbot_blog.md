@@ -140,22 +140,273 @@ This structured approach transforms the chatbot from a "Search Engine" into a "P
 
 ## Part 4: The Developer's Guide 👩‍💻
 
-### Under the Hood: Key Framework Primitives
+**Goal**: Build your own production-ready RAG chatbot using our modular architecture. This guide walks you through the implementation with real code snippets from our codebase.
 
-We didn't just use these frameworks; we exploited their specific capabilities to build a robust system.
+---
 
-#### 1. LangChain & LangGraph
-*   **`create_agent`**: We use this to compile our `System Prompt` + `Tools` (Retrieval) + `LLM` into a runnable agent.
-*   **`RedisSaver`**: From `langgraph.checkpoint.redis`. This is critical. It allows us to save the entire state of the agent to Redis, meaning we can kill the server, restart it, and the bot remembers exactly where it left off.
-*   **`RecursiveCharacterTextSplitter`**: Used in our ingestion pipeline. It respects code blocks and paragraphs, preventing us from splitting a sentence in half and confusing the LLM.
+### Architecture Overview
 
-#### 2. FastAPI
-*   **`APIRouter`**: We split our API into modular routes (`chat.py`, `users.py`) instead of one giant `main.py` file.
-*   **`Depends`**: We use Dependency Injection for everything. Need the `SessionManager`? Inject it. Need the `AgentPool`? Inject it. This makes unit testing incredibly easy because we can inject "Mock" managers during tests.
+The system has 5 major components:
 
-#### 3. Streamlit
-*   **`st.session_state`**: We rely on this to maintain the UI state (chat history, selected model) across re-runs of the script.
-*   **`st.chat_message`**: A native widget that handles the avatars and formatting for user/assistant messages automatically.
+1. **Document Ingestion & Vector Store Creation** - Load PDFs, split into chunks, generate embeddings, store in ChromaDB
+2. **Agent Pool Management** - Reuse chatbot instances across requests to reduce memory overhead
+3. **Retrieval-Augmented Generation** - Query vector store, retrieve context, generate responses
+4. **Session & Memory Management** - Maintain conversation history using Redis checkpointer
+5. **API & UI Layer** - FastAPI endpoints and Streamlit interface for user interaction
+
+---
+
+### Component Breakdown with Code Snippets
+
+#### 1. Create Vector Database from Documents
+
+The first step is ingesting your documents into a vector store. Our ingestion pipeline loads PDFs, splits them into chunks with overlap, generates embeddings, and stores them in ChromaDB.
+
+```python
+from src.application.ingestion.loader import load_pdf_documents
+from src.application.ingestion.chunker import split_documents
+from langchain_community.vectorstores import Chroma
+from src.infrastructure.vectorstore.manager import create_embeddings
+
+# Load PDF documents from folder
+documents = load_pdf_documents(folder_path="./policies", recursive=True)
+
+# Split into chunks (1000 chars per chunk, 200 overlap)
+split_docs = split_documents(
+    documents,
+    chunk_size=1000,
+    chunk_overlap=200,
+    add_start_index=True
+)
+
+# Create embeddings (supports OpenAI, Google, etc.)
+embeddings = create_embeddings(
+    provider="openai",
+    embedding_model="text-embedding-3-small"
+)
+
+# Store in ChromaDB
+vector_store = Chroma.from_documents(
+    documents=split_docs,
+    embedding=embeddings,
+    persist_directory="./data/vectorstores/chroma_db/hr_chatbot"
+)
+```
+
+**CLI Usage:**
+```bash
+python scripts/ingestion/create_vectorstore.py \
+  --chatbot-type hr \
+  --folder ./policies \
+  --chunk-size 1000 \
+  --chunk-overlap 200
+```
+
+---
+
+#### 2. Agent Pool: Memory-Efficient Agent Management
+
+Instead of creating a new chatbot instance for every request (which would consume massive memory), we use an **Agent Pool** that reuses pre-initialized agents. This reduces memory usage by 99% for concurrent users.
+
+```python
+from src.application.chatbot.agent_pool import AgentPool, get_agent_pool
+from src.domain.chatbot.hr_chatbot import HRChatbot
+
+# Create agent pool (singleton pattern per chatbot type)
+agent_pool = get_agent_pool(
+    chatbot_type="hr",
+    agent_factory=HRChatbot._get_default_instance,
+    pool_size=1  # Single shared agent (most common)
+)
+
+# Get agent from pool (thread-safe)
+chatbot = agent_pool.get_agent()
+
+# Use the agent
+response = chatbot.chat(
+    query="What is the vacation policy?",
+    thread_id="user-123-session-456"
+)
+
+# Agent is automatically returned to pool after use
+```
+
+**Key Benefits:**
+- **Memory Efficiency**: One agent instance serves thousands of users
+- **Thread-Safe**: Round-robin allocation for concurrent requests
+- **Hot Start**: Agents are pre-initialized, eliminating cold-start latency
+
+---
+
+#### 3. Retrieval-Augmented Generation Pipeline
+
+The core RAG flow: retrieve relevant documents, inject context into prompt, generate response.
+
+```python
+from src.domain.retrieval.service import RetrievalService
+from langchain.agents import create_agent
+from src.infrastructure.llm.manager import get_llm_manager
+
+# Initialize retrieval service with vector store
+vector_store = get_vector_store("hr")
+retrieval_service = RetrievalService(vector_store)
+
+# Create retrieval tool for the agent
+retrieve_tool = retrieval_service.create_tool()
+
+# Get LLM instance
+llm = get_llm_manager().get_llm(
+    model_name="gemini-2.5-flash",
+    temperature=0.7
+)
+
+# Create agent with retrieval tool
+agent = create_agent(
+    model=llm,
+    tools=[retrieve_tool],
+    system_prompt=system_prompt
+)
+
+# Agent automatically uses retrieval tool when needed
+response = agent.invoke({
+    "messages": [("user", "What is the maternity leave policy?")]
+})
+```
+
+**How It Works:**
+1. User asks: "What is the maternity leave policy?"
+2. Agent calls `retrieve_documents` tool with query
+3. Vector store returns top 4 relevant document chunks
+4. Agent combines context + system prompt + user question
+5. LLM generates response based on retrieved context
+
+---
+
+#### 4. Session & Memory Management with Redis
+
+We use **LangGraph's Redis checkpointer** to persist conversation state. This means the bot remembers context across server restarts.
+
+```python
+from langgraph.checkpoint.redis import RedisSaver
+from src.infrastructure.storage.checkpointing.manager import get_checkpointer
+
+# Redis checkpointer (configured automatically)
+checkpointer = get_checkpointer()
+
+# Create agent with checkpointer
+agent = create_agent(
+    model=llm,
+    tools=[retrieve_tool],
+    checkpointer=checkpointer  # Enables state persistence
+)
+
+# Chat with thread_id (session identifier)
+config = {"configurable": {"thread_id": "user-123-session-456"}}
+response = agent.invoke(
+    {"messages": [("user", "What is the vacation policy?")]},
+    config=config
+)
+
+# Later, in a different request...
+# Agent automatically loads conversation history from Redis
+response2 = agent.invoke(
+    {"messages": [("user", "How many days?")]},  # References previous question
+    config=config  # Same thread_id = same conversation
+)
+```
+
+**Memory Strategies:**
+Our system supports multiple memory strategies configured via YAML:
+
+```yaml
+memory:
+  strategy: "trim"  # Options: "none", "trim", "summarize", "trim_and_summarize"
+  trim_keep_messages: 1  # Keep last N messages when trimming
+  summarize_threshold: 2  # Summarize when messages exceed this count
+```
+
+---
+
+#### 5. FastAPI Endpoints with Dependency Injection
+
+Our API uses FastAPI's dependency injection for clean, testable code. Session management is handled automatically via headers.
+
+```python
+from fastapi import APIRouter, Depends
+from src.domain.chatbot.hr_chatbot import get_hr_chatbot
+from src.shared.dependencies.session import get_session_from_headers
+
+router = APIRouter()
+
+@router.post("/", response_model=ChatResponse)
+async def chat_with_hr_chatbot(
+    request: ChatRequest,
+    session: ChatbotSession = Depends(get_session_from_headers)
+):
+    """
+    Chat endpoint with automatic session management.
+    Session ID is extracted from X-Session-ID header or session_id cookie.
+    """
+    # Get agent from pool (thread-safe)
+    chatbot = get_hr_chatbot()
+    
+    # Chat with automatic memory management
+    response_text = chatbot.chat(
+        query=request.message,
+        thread_id=session.session_id,  # Used for Redis checkpointer
+        user_id=session.user_id
+    )
+    
+    return ChatResponse(
+        response=response_text,
+        session_id=session.session_id,
+        model_used=chatbot.model_name
+    )
+```
+
+**Session Management:**
+- **Headers**: `X-Session-ID`, `X-User-ID` (preferred)
+- **Cookies**: `session_id`, `user_id` (fallback)
+- **Auto-Generation**: New session created if not provided
+
+---
+
+#### 6. Streamlit UI for Interactive Testing
+
+Our Streamlit interface provides a chat UI for testing and demos.
+
+```python
+import streamlit as st
+from src.domain.chatbot.hr_chatbot import get_hr_chatbot
+
+st.title("HR Chatbot")
+
+# Initialize session state
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
+# Display chat history
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# User input
+if prompt := st.chat_input("Ask about HR policies..."):
+    # Add user message
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    
+    # Get chatbot and generate response
+    chatbot = get_hr_chatbot()
+    response = chatbot.chat(
+        query=prompt,
+        thread_id=st.session_state.session_id
+    )
+    
+    # Add assistant response
+    st.session_state.messages.append({"role": "assistant", "content": response})
+```
 
 ---
 
@@ -164,57 +415,168 @@ We didn't just use these frameworks; we exploited their specific capabilities to
 The easiest way to stand up the entire stack (App + Redis) is Docker.
 
 ```bash
-# 1. Clone & Config
-cp .env-sample .env  # Add your OPENAI_API_KEY
+# 1. Clone & Configure
+git clone <repository>
+cd rag_chatbot
+cp .env-sample .env  # Add your OPENAI_API_KEY or GEMINI_API_KEY
 
-# 2. Launch
+# 2. Launch Services
 docker-compose up --build
 ```
-*   **FastAPI**: `http://localhost:8000/docs`
-*   **Streamlit UI**: `http://localhost:8501`
+
+**Access Points:**
+- **FastAPI**: `http://localhost:8000/docs`
+- **Streamlit UI**: `http://localhost:8501`
+- **Redis**: `localhost:6379` (for checkpointer)
+
+---
 
 ### 🛠️ Creating Your Own Chatbot (The 4-Step Recipe)
 
 Want to build a specialized "Legal Bot" or "Sales Assistant"? You don't need to touch the core engine. Just follow this recipe:
 
-#### Step 1: The Config (`config/chatbot/legal_config.yaml`)
-Define the personality and resources.
+#### Step 1: The Config (`config/chatbot/legal_chatbot_config.yaml`)
+
+Define the personality, model, and resources.
+
 ```yaml
 model:
   name: "gpt-4"
+  temperature: 0.7
+  max_tokens: 2000
+
 vector_store:
   type: "legal"
+  persist_dir: "./data/vectorstores/chroma_db/legal_chatbot"
   collection_name: "legal_docs"
+  embedding_provider: "openai"
+  embedding_model: "text-embedding-3-small"
+
+tools:
+  enable_retrieval: true
+
+memory:
+  strategy: "trim"
+  trim_keep_messages: 5
+
 agent_pool:
   size: 2
 ```
 
 #### Step 2: The Prompts (`config/chatbot/prompts/legal_prompts.yaml`)
-Tell it who it is.
+
+Tell it who it is and how to behave.
+
 ```yaml
 system_prompt: |
-  You are a Legal Assistant. 
-  Only answer based on the retrieved Production Service Agreements.
-  If unsure, say "I need to consult a human lawyer."
+  You are a Legal Assistant specializing in contract analysis.
+  Only answer based on the retrieved legal documents.
+  If the information is not in the provided context, state:
+  "The provided documents do not contain information regarding [topic]."
+  Do NOT guess or use outside knowledge.
+
+agent_instructions: |
+  - Provide specific clause numbers and page references
+  - Quote exact text from documents when possible
+  - If unsure, recommend consulting a human lawyer
 ```
 
 #### Step 3: The Class (`src/domain/chatbot/legal_chatbot.py`)
-Minimal boilerplate to wire it up.
+
+Minimal boilerplate - just define the type and config filename.
+
 ```python
+from src.domain.chatbot.core.chatbot_agent import ChatbotAgent
+
 class LegalChatbot(ChatbotAgent):
-    def _get_chatbot_type(self): return "legal"
-    def _get_config_filename(self): return "legal_config.yaml"
+    """Legal chatbot implementation."""
+    
+    def _get_chatbot_type(self) -> str:
+        return "legal"
+    
+    @classmethod
+    def _get_config_filename(cls) -> str:
+        return "legal_chatbot_config.yaml"
+    
+    @classmethod
+    def _get_default_instance(cls) -> "LegalChatbot":
+        return LegalChatbot()
+
+# Convenience function
+def get_legal_chatbot() -> LegalChatbot:
+    return LegalChatbot.get_from_pool()
 ```
 
-#### Step 4: The Data
-Ingest your PDF/Docs into the vector store.
+**That's it!** The base `ChatbotAgent` class automatically:
+- Loads YAML configuration
+- Creates retrieval tools
+- Builds system prompts
+- Manages memory
+- Handles agent pool
+
+#### Step 4: Ingest Your Data
+
+Load your PDFs/Documents into the vector store.
+
 ```bash
 python scripts/ingestion/create_vectorstore.py \
   --chatbot-type legal \
-  --folder-path ./my_legal_pdfs/
+  --folder ./legal_documents \
+  --chunk-size 1000 \
+  --chunk-overlap 200
 ```
 
+**Verify the vector store:**
+```python
+from src.infrastructure.vectorstore.manager import get_vector_store
+
+vector_store = get_vector_store("legal")
+count = vector_store._collection.count()
+print(f"Vector store contains {count} document chunks")
+```
+
+---
+
+### Best Practices & Production Considerations
+
+1. **Embedding Provider Selection**
+   - **OpenAI**: Best quality, higher cost (`text-embedding-3-small`)
+   - **Google**: Good balance (`text-embedding-ada-002` equivalent)
+   - **Local Models**: Cost-effective for high-volume (requires GPU)
+
+2. **Chunk Size Tuning**
+   - **Small chunks (500-800)**: Better precision, more chunks to retrieve
+   - **Large chunks (1500-2000)**: More context, but may include irrelevant info
+   - **Sweet spot**: 1000-1200 characters with 200 overlap
+
+3. **Memory Strategy Selection**
+   - **`trim`**: Fast, keeps last N messages (good for short conversations)
+   - **`summarize`**: Compresses history, maintains long-term context
+   - **`trim_and_summarize`**: Best of both worlds (recommended for production)
+
+4. **Agent Pool Sizing**
+   - **Size 1**: Single shared agent (99% of use cases)
+   - **Size 2-4**: For high concurrency (1000+ concurrent users)
+   - **Monitor**: Use `get_all_pool_stats()` to track pool utilization
+
+5. **Evaluation Before Deployment**
+   ```bash
+   python evaluations/hr_chatbot/evaluate_hr_chatbot.py \
+     --dataset sample_dataset.json \
+     --output results.json
+   ```
+   Our evaluation pipeline uses LLM-as-a-Judge to score responses for accuracy, relevance, and tone.
+
+---
+
 ### Conclusion
-This project moves beyond the "tutorial" phase into a scalable, maintainable architecture. whether you are a startup needing a cost-effective support bot or an enterprise building a fleet of internal tools, this RAG engine provides the solid foundation you need.
+
+This project moves beyond the "tutorial" phase into a scalable, maintainable architecture. Whether you're a startup needing a cost-effective support bot or an enterprise building a fleet of internal tools, this RAG engine provides the solid foundation you need.
+
+**Key Takeaways:**
+- **Modular Architecture**: Swap components (LLM, vector store, embeddings) without rewriting core logic
+- **Memory Efficient**: Agent pools reduce memory by 99% vs. per-request instantiation
+- **Production Ready**: Redis checkpointer, session management, evaluation pipelines
+- **Developer Friendly**: 4-step recipe to create new chatbots without touching core code
 
 [Link to Repository]
