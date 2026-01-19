@@ -4,6 +4,26 @@ A production-ready Python application combining FastAPI backend with Streamlit f
 
 ## Quick Start
 
+### Using Docker (Recommended)
+
+1. **Configure environment**:
+   ```bash
+   cp .env-sample .env
+   # Edit .env and add your API keys (OPENAI_API_KEY, etc.)
+   ```
+
+2. **Build and run with Docker Compose**:
+   ```bash
+   docker-compose up --build
+   ```
+
+3. **Access the applications**:
+   - FastAPI: http://localhost:8000
+   - FastAPI Docs: http://localhost:8000/docs
+   - Streamlit: http://localhost:8501
+
+### Using Local Python Environment
+
 1. **Install dependencies**:
    ```bash
    python -m venv venv
@@ -102,7 +122,37 @@ See [Architecture Guide](docs/ARCHITECTURE.md) for detailed structure.
 
 ## Running the Application
 
-### Command Line
+### Using Docker
+
+```bash
+# Build and start all services (app + Redis)
+docker-compose up --build
+
+# Run in detached mode (background)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f app
+
+# Stop services
+docker-compose down
+
+# Stop and remove volumes (clean slate)
+docker-compose down -v
+
+# Rebuild after code changes
+docker-compose up --build
+```
+
+**Docker Services:**
+- **App**: Main application (FastAPI + Streamlit)
+- **Redis**: Session checkpointing and state management
+
+**Note**: Make sure your `.env` file is configured with API keys before starting.
+
+### Using Local Python Environment
+
+#### Command Line
 
 ```bash
 # Run both applications (default)
@@ -115,7 +165,7 @@ python -m src.main --app fastapi
 python -m src.main --app streamlit
 ```
 
-### Using Cursor/VS Code
+#### Using Cursor/VS Code
 
 1. Press `F5` or go to Run and Debug
 2. Select one of the pre-configured options:
