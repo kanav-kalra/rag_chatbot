@@ -89,7 +89,7 @@ Here are the concrete numbers from our production deployment:
 | **Cost per Query** | ~$0.01 (using Gemini Flash + OpenAI embeddings) |
 | **Uptime** | 99.9% (Redis checkpoints survive server restarts) |
 
-![Evaluation Scores](evaluation_scores_chart.png)
+![Evaluation Scores](images/evaluation_scores_chart.png)
 
 *Evaluation metrics from our LLM-as-Judge pipeline showing performance across correctness, groundedness, relevance, retrieval relevance, and scannability.*
 
@@ -637,7 +637,7 @@ print(f"Vector store contains {count} document chunks")
 
 Here's a complete example showing how the system handles a real user query:
 
-![HR Chatbot UI](hr_chatbot_ui.png)
+![HR Chatbot UI](images/hr_chatbot_ui.png)
 
 **Conversation Flow**:
 
