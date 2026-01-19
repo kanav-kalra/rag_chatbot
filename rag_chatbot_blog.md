@@ -113,37 +113,42 @@ Here are the concrete numbers from our production deployment:
 We designed the system using **Clean Architecture** to ensure separation of concerns. The diagram below maps the conceptual RAG flow directly to our codebase structure.
 
 ```mermaid
-graph LR
-    User[👤 User] -->|Request| API[🌐 FastAPI/Streamlit]
+graph TD
+    User[👤 User] -->|"① Request"| API[🌐 FastAPI/Streamlit]
     
-    API -->|Session Lookup| SM[💾 SessionManager]
-    API -->|Get Agent| AP[🔄 AgentPool]
+    subgraph Application["📦 Application Layer"]
+        API -->|"② Session Lookup"| SM[💾 SessionManager]
+        API -->|"③ Get Agent"| AP[🔄 AgentPool]
+    end
     
-    AP -->|Acquire| Agent[🤖 ChatbotAgent]
+    subgraph Domain["🎯 Domain Layer"]
+        AP -->|"④ Acquire"| Agent[🤖 ChatbotAgent]
+        Agent -->|"⑤ Load History"| Mem[📝 MemoryManager]
+        Agent -->|"⑥ Retrieve Context"| Ret[🔍 RetrievalService]
+    end
     
-    Agent -->|Load History| Mem[📝 MemoryManager]
-    Agent -->|Retrieve Context| Ret[🔍 RetrievalService]
+    subgraph Infrastructure["⚙️ Infrastructure Layer"]
+        Ret -->|"⑦ Query"| VSM[📊 VectorStoreManager]
+        VSM -->|"⑧ Similarity Search"| Chroma[(💾 ChromaDB)]
+        Agent -->|"⑪ Generate"| LLM[🧠 LLMManager]
+        LLM -->|"⑫ API Call"| External[☁️ OpenAI / Gemini]
+        SM -->|"⑮ Persist"| Redis[(🔴 Redis)]
+    end
     
-    Ret -->|Query| VSM[📊 VectorStoreManager]
-    VSM -->|Similarity Search| Chroma[(💾 ChromaDB)]
-    
-    Chroma -->|Document Chunks| Ret
-    Ret -->|Context| Agent
-    
-    Agent -->|Generate| LLM[🧠 LLMManager]
-    LLM -->|API Call| External[☁️ OpenAI / Gemini]
-    
-    External -->|Response| Agent
-    Agent -->|Save State| SM
-    SM -->|Persist| Redis[(🔴 Redis)]
-    
-    Agent -->|Return| AP
-    Agent -->|Response| API
-    API -->|Answer| User
+    Chroma -->|"⑨ Document Chunks"| Ret
+    Ret -->|"⑩ Context"| Agent
+    External -->|"⑬ Response"| Agent
+    Agent -->|"⑭ Save State"| SM
+    Agent -->|"⑯ Return"| AP
+    Agent -->|"⑰ Response"| API
+    API -->|"⑱ Answer"| User
     
     style User fill:#e1f5ff
     style API fill:#fff4e1
-    style Agent fill:#e8f5e9
+    style Application fill:#e3f2fd
+    style Domain fill:#e8f5e9
+    style Infrastructure fill:#fff3e0
+    style Agent fill:#c8e6c9
     style LLM fill:#f3e5f5
     style Chroma fill:#fff9c4
     style Redis fill:#ffebee
