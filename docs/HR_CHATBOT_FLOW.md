@@ -223,12 +223,12 @@ FastAPI formats and returns response:
 - Handles lazy loading and caching
 - Thread-safe access
 
-### MemoryManager
+### MemoryMiddlewareFactory
 
-- Manages conversation history
-- Applies memory strategies
-- Integrates with Redis checkpointing
-- Handles context window limits
+- Creates LangChain middleware for memory management
+- Implements trim and summarize strategies via @before_model decorators
+- Integrates with LangChain's checkpointer for state persistence
+- Handles context window limits automatically before each model call
 
 ## Error Handling
 
