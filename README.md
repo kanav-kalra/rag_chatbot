@@ -59,6 +59,7 @@ A production-ready Python application combining FastAPI backend with Streamlit f
 - ✅ **Memory Management**: Configurable memory strategies (trim, summarize, etc.)
 - ✅ **Multiple LLM Support**: OpenAI, Anthropic, Google (Gemini), Ollama
 - ✅ **Vector Store**: ChromaDB with persistent storage
+- ✅ **Token Counting**: Optional token usage tracking and cost estimation
 
 ## Documentation
 
@@ -71,6 +72,7 @@ A production-ready Python application combining FastAPI backend with Streamlit f
 - **[Configuration Guide](docs/CONFIGURATION.md)**: Environment variables, YAML configs, and settings
 - **[Vector Store Management](docs/VECTOR_STORE.md)**: Creating, managing, and updating vector stores
 - **[Session Management](docs/SESSION_MANAGEMENT.md)**: Session lifecycle, headers, and shared agent pool
+- **[Token Counting Guide](docs/TOKEN_COUNTING.md)**: Token usage tracking, cost estimation, and monitoring
 - **[Evaluation Guide](docs/EVALUATION.md)**: How to evaluate chatbots using LLM-as-Judge with LangSmith
 
 

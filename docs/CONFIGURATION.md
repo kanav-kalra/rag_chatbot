@@ -179,6 +179,27 @@ agent_pool:
 verbose: false  # Enable verbose logging for debugging
 ```
 
+### Token Counting Configuration
+
+```yaml
+token_counting:
+  enabled: true  # Enable/disable token counting and logging
+```
+
+**Token Counting**:
+- `enabled`: Enable or disable token counting (default: false)
+- When enabled, automatically tracks and logs token usage for all chat components
+- Provides detailed breakdown: query, system prompt, history, context, response
+- Includes cost estimation based on model pricing
+- Zero performance impact when disabled
+
+**Configuration Priority**:
+1. Environment variable: `ENABLE_TOKEN_COUNTING=true` (highest priority)
+2. YAML config: `token_counting.enabled: true`
+3. Default: disabled
+
+See [Token Counting Guide](TOKEN_COUNTING.md) for detailed documentation.
+
 ## Prompts Configuration
 
 Prompts are stored in YAML files in `config/chatbot/prompts/`. For example, `hr_chatbot_prompts.yaml`:
@@ -289,6 +310,9 @@ memory:
 
 agent_pool:
   size: 1
+
+token_counting:
+  enabled: true
 
 verbose: false
 ```
