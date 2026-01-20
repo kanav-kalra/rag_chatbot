@@ -158,6 +158,7 @@ class PromptDataRepository:
         self._topic_prompts: Dict[str, str] = {}
         self._topic_keywords: Dict[str, List[str]] = {}
         self._rag_prompt_template: Optional[str] = None
+        self._summary_prompt_template: Optional[str] = None
     
     def set_topic_prompts(self, topic_prompts: Dict[str, str]) -> None:
         """Set topic prompts."""
@@ -190,6 +191,14 @@ class PromptDataRepository:
     def get_rag_prompt_template(self) -> Optional[str]:
         """Get RAG prompt template."""
         return self._rag_prompt_template
+    
+    def set_summary_prompt_template(self, template: Optional[str]) -> None:
+        """Set summary prompt template."""
+        self._summary_prompt_template = template
+    
+    def get_summary_prompt_template(self) -> Optional[str]:
+        """Get summary prompt template."""
+        return self._summary_prompt_template
 
 
 class ChatbotPromptBuilder:
@@ -243,6 +252,12 @@ class ChatbotPromptBuilder:
         except (FileNotFoundError, ValueError) as e:
             logger.warning(f"Failed to load RAG prompt template: {e}")
             self._data_repository.set_rag_prompt_template(None)
+        
+        try:
+            self._load_summary_prompt_template()
+        except (FileNotFoundError, ValueError) as e:
+            logger.warning(f"Failed to load summary prompt template: {e}")
+            self._data_repository.set_summary_prompt_template(None)
     
     def _get_prompts_filename(self) -> Optional[str]:
         """Get prompts filename from config."""
@@ -369,6 +384,43 @@ class ChatbotPromptBuilder:
                 logger.debug("Loaded RAG prompt template from prompts file")
             else:
                 logger.debug("No rag_prompt_template found in prompts file")
+        except Exception as e:
+            logger.warning(f"Error loading RAG prompt template: {e}")
+            self._data_repository.set_rag_prompt_template(None)
+    
+    def _load_summary_prompt_template(self) -> None:
+        """
+        Load summary_prompt_template from the prompts YAML file.
+        
+        Raises:
+            ValueError: If config_manager is missing or prompts_file is not specified
+            FileNotFoundError: If the prompts file is not found
+        """
+        prompts_filename = self._get_prompts_filename()
+        if not prompts_filename:
+            self._data_repository.set_summary_prompt_template(None)
+            return
+        
+        try:
+            prompts_data = self._file_loader.load_prompts_file(prompts_filename)
+            prompts_file = self._file_loader.get_file_path(prompts_filename)
+            
+            # Extract from nested structure if needed
+            prompts_data = self._file_loader.extract_nested_prompts(
+                prompts_data,
+                required_keys=["summary_prompt_template"],
+                file_path=prompts_file
+            )
+            
+            summary_template = prompts_data.get("summary_prompt_template")
+            self._data_repository.set_summary_prompt_template(summary_template)
+            if summary_template:
+                logger.debug("Loaded summary prompt template from prompts file")
+            else:
+                logger.debug("No summary_prompt_template found in prompts file")
+        except Exception as e:
+            logger.warning(f"Error loading summary prompt template: {e}")
+            self._data_repository.set_summary_prompt_template(None)
         except FileNotFoundError:
             self._data_repository.set_rag_prompt_template(None)
             logger.debug("RAG template not found - prompts file not available")
@@ -498,6 +550,15 @@ class ChatbotPromptBuilder:
             RAG prompt template string with {context} and {question} placeholders, or None if not found
         """
         return self._data_repository.get_rag_prompt_template()
+    
+    def get_summary_prompt_template(self) -> Optional[str]:
+        """
+        Get the summary prompt template from the prompts file.
+        
+        Returns:
+            Summary prompt template string with {old_summary} and {conversation_text} placeholders, or None if not found
+        """
+        return self._data_repository.get_summary_prompt_template()
     
     def format_rag_prompt(self, context: str, question: str) -> Optional[str]:
         """

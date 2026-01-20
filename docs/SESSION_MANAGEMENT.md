@@ -317,8 +317,8 @@ print(f"Total sessions: {stats['total_sessions']}")
 
 ## Related Documentation
 
-- [Shared Agent Pool](../SHARED_AGENT_POOL.md) - Detailed agent pool information
+- [Architecture Guide](ARCHITECTURE.md) - System architecture including agent pool design
 - [API Usage Guide](API_USAGE.md) - API integration examples
 - [Configuration Guide](CONFIGURATION.md) - Session configuration options
-- [Memory Management Guide](../MEMORY_MANAGEMENT_GUIDE.md) - Memory strategies
+- [Architecture Guide](ARCHITECTURE.md) - Memory strategies and middleware
 

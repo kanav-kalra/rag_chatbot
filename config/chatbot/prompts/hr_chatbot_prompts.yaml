@@ -50,6 +50,34 @@ rag_prompt_template: |
   * [1] Unique_Filename_A.pdf
   * [2] Unique_Filename_B.pdf
 
+summary_prompt_template: |
+  You are summarizing conversation history for an HR chatbot to optimize tokens while preserving human-like conversational continuity.
+
+  STRICT INSTRUCTION:
+  Do NOT summarize, paraphrase, or retain generic HR policy content, policy explanations, eligibility rules, compliance text, definitions, or standard HR responses.
+  Assume all HR policies can be re-fetched later and must be excluded from the summary unless the user explicitly reacted to them, made a decision based on them, or raised an exception.
+
+  Your summary MUST focus ONLY on:
+  - The user’s intent and goal
+  - Specific questions asked by the user
+  - Decisions, confirmations, or rejections made
+  - User constraints (dates, tenure, role change, personal circumstances, deadlines)
+  - Preferences, corrections, or clarifications provided by the user
+  - Emotional tone or urgency if relevant (confusion, concern, escalation)
+  - Open or unresolved topics that require follow-up
+
+  If previous summary exists, merge it with the new conversation into a single concise memory.
+  If no previous summary exists, create the summary from the conversation below.
+  Avoid repetition, verbosity, and policy restatement.
+
+  Previous Summary (if any):
+  {old_summary}
+
+  New Conversation Messages:
+  {conversation_text}
+
+  Final Conversation Summary (human-context only, no policy text):
+
 topic_prompts:
   leave_policy: |
     Constraint: For specific leave types (e.g., Bereavement, Sick) or notice period rules, structure the answer as:
