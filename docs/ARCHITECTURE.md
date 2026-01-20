@@ -158,6 +158,7 @@ The project follows **Clean Architecture** principles with clear separation of c
 - **Config** (`config/`): Application settings, logging
 - **Dependencies** (`dependencies/`): Dependency injection
 - **Memory** (`memory/`): Memory configuration
+- **Utils** (`utils/`): Token counting, token counter utilities
 
 ## Project Structure
 
@@ -191,6 +192,7 @@ rag_chatbot/
 │   └── shared/                  # Shared utilities
 │       ├── config/
 │       ├── memory/
+│       ├── utils/               # Token counting, token counter
 │       └── dependencies/
 ├── scripts/                      # Scripts and tools
 ├── config/                       # Configuration files
@@ -220,17 +222,32 @@ rag_chatbot/
 - **Factory Pattern**: Agent pool uses factory pattern for agent creation
 - **Strategy Pattern**: Memory management uses strategy pattern
 - **Repository Pattern**: Vector store abstraction follows repository pattern
+- **Observer Pattern**: Token counting uses observer pattern for monitoring
+
+### Token Counting
+
+Token counting is implemented as an optional feature using the observer pattern:
+
+- **TokenCountingObserver**: Observes chat events and accumulates token counts
+- **TokenCountingWrapper**: Manages observer lifecycle and configuration
+- **Utility Functions**: Modular functions for collecting and processing token data
+
+Token counting is integrated into the `ChatbotAgent.chat()` method and can be enabled/disabled via configuration. When enabled, it automatically tracks token usage for all components (query, system prompt, history, context, response) and provides detailed breakdowns with cost estimates.
+
+See [Token Counting Guide](TOKEN_COUNTING.md) for detailed documentation.
 
 ## Data Flow
 
 1. **Request** → FastAPI endpoint
 2. **Session** → Session manager retrieves/creates session
 3. **Agent** → Agent pool provides chatbot instance
-4. **Query** → Chatbot processes query
-5. **Retrieval** → Retrieval service searches vector store
-6. **LLM** → LLM generates response with context
-7. **Memory** → Conversation saved to Redis checkpoint
-8. **Response** → Formatted response returned to user
+4. **Token Counting** → Collects token data (if enabled)
+5. **Query** → Chatbot processes query
+6. **Retrieval** → Retrieval service searches vector store
+7. **LLM** → LLM generates response with context
+8. **Token Counting** → Processes and logs token counts (if enabled)
+9. **Memory** → Conversation saved to Redis checkpoint
+10. **Response** → Formatted response returned to user
 
 See [HR Chatbot Flow](HR_CHATBOT_FLOW.md) for detailed sequence diagram.
 
@@ -277,4 +294,5 @@ See [Creating a New Chatbot](CREATING_NEW_CHATBOT.md) for detailed guide.
 - [Creating a New Chatbot](CREATING_NEW_CHATBOT.md) - Extension guide
 - [Configuration Guide](CONFIGURATION.md) - Configuration details
 - [Session Management](SESSION_MANAGEMENT.md) - Session architecture
+- [Token Counting Guide](TOKEN_COUNTING.md) - Token counting and monitoring
 

@@ -23,6 +23,7 @@ langgraph-cli
 langgraph-api
 redis
 pypdf==6.5.0
+tiktoken
 python-dotenv
 chromadb
 typing-extensions

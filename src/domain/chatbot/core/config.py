@@ -28,6 +28,7 @@ class ConfigKeys:
     MEMORY_SUMMARIZE_MODEL = "memory.summarize_model"
     AGENT_POOL_SIZE = "agent_pool.size"
     VERBOSE = "verbose"
+    TOKEN_COUNTING_ENABLED = "token_counting.enabled"
 
 
 class ChatbotConfigManager:

@@ -60,4 +60,8 @@ agent_pool:
 
 # Verbose Logging
 verbose: false
-
+# Token Counting Configuration (optional)
+# Enable detailed token usage logging for cost optimization
+# Can also be enabled via ENABLE_TOKEN_COUNTING environment variable
+token_counting:
+  enabled: true  # Set to true to enable token counting and cost estimation
