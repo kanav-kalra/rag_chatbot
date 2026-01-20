@@ -18,6 +18,8 @@ from src.shared.config.logging import logger
 from src.shared.config.settings import settings
 from src.domain.chatbot.hr_chatbot import get_hr_chatbot
 from src.domain.session.manager import ChatbotSession, ChatbotSessionManager
+from src.infrastructure.llm.manager import LLMManager
+from src.shared.dependencies.llm import get_llm_manager
 from src.shared.dependencies.session import (
     get_session_from_headers,
     get_session_from_path,
@@ -50,7 +52,8 @@ class ChatResponse(BaseModel):
 @router.post("/", response_model=ChatResponse, tags=["chat"])
 async def chat_with_hr_chatbot(
     request: ChatRequest,
-    session: ChatbotSession = Depends(get_session_from_headers)
+    session: ChatbotSession = Depends(get_session_from_headers),
+    llm_manager: LLMManager = Depends(get_llm_manager)
 ):
     """
     Chat with the HR chatbot using Redis checkpointer for memory management.
@@ -71,6 +74,7 @@ async def chat_with_hr_chatbot(
     Args:
         request: Chat request containing only the message
         session: ChatbotSession automatically injected via dependency from headers/cookies
+        llm_manager: LLM manager instance (automatically injected via dependency)
         
     Returns:
         ChatResponse with the chatbot's response and session_id
@@ -79,8 +83,8 @@ async def chat_with_hr_chatbot(
         HTTPException: If the chatbot fails to respond
     """
     try:
-        # Get HR chatbot instance from agent pool at runtime
-        chatbot = get_hr_chatbot()
+        # Get HR chatbot instance from agent pool at runtime (pass llm_manager)
+        chatbot = get_hr_chatbot(llm_manager=llm_manager)
         
         # Chat with the chatbot (checkpointer manages history automatically)
         # Use session_id as thread_id for checkpointer
@@ -256,9 +260,14 @@ async def get_session_stats(
 
 
 @router.get("/health", tags=["chat"])
-async def chat_health_check():
+async def chat_health_check(
+    llm_manager: LLMManager = Depends(get_llm_manager)
+):
     """
     Health check for the HR chatbot service.
+    
+    Args:
+        llm_manager: LLM manager instance (automatically injected via dependency)
     
     Returns:
         Status of the chatbot service
@@ -267,7 +276,7 @@ async def chat_health_check():
         from src.infrastructure.storage.checkpointing.manager import get_checkpointer_manager
         
         manager = get_checkpointer_manager()
-        chatbot = get_hr_chatbot()  # Uses singleton from hr_chatbot module
+        chatbot = get_hr_chatbot(llm_manager=llm_manager)
         
         return {
             "status": "healthy",

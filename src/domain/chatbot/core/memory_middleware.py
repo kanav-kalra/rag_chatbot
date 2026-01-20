@@ -24,7 +24,7 @@ from langgraph.runtime import Runtime
 
 from src.shared.config.logging import logger
 from src.shared.memory.config import MemoryConfig, MemoryStrategy
-from src.infrastructure.llm.manager import get_llm_manager
+from src.infrastructure.llm.manager import LLMManager
 
 
 class MemoryMiddlewareFactory:
@@ -36,7 +36,13 @@ class MemoryMiddlewareFactory:
     functions that can be used with LangChain's create_agent.
     """
     
-    def __init__(self, memory_config: MemoryConfig, default_model_name: str, summary_prompt_template: Optional[str] = None):
+    def __init__(
+        self,
+        memory_config: MemoryConfig,
+        default_model_name: str,
+        summary_prompt_template: Optional[str] = None,
+        llm_manager: Optional[LLMManager] = None
+    ):
         """
         Initialize memory middleware factory.
         
@@ -46,10 +52,15 @@ class MemoryMiddlewareFactory:
             summary_prompt_template: Optional custom prompt template for summarization. 
                                     Should contain {old_summary} and {conversation_text} placeholders.
                                     If None, uses default prompt.
+            llm_manager: LLM manager instance (REQUIRED for summarization strategies)
         """
+        if llm_manager is None:
+            raise ValueError("llm_manager is required for MemoryMiddlewareFactory")
+        
         self.memory_config = memory_config
         self.default_model_name = default_model_name
         self.summary_prompt_template = summary_prompt_template
+        self._llm_manager = llm_manager
     
     def create_middleware(self) -> List[Callable]:
         """
@@ -279,8 +290,12 @@ class MemoryMiddlewareFactory:
         summarize_threshold = max(2, self.memory_config.summarize_threshold)
         summarize_model = self.memory_config.summarize_model or self.default_model_name
         
-        # Create summary generator function
-        summary_generator = SummaryGenerator(summarize_model, self.summary_prompt_template)
+        # Create summary generator function (pass llm_manager)
+        summary_generator = SummaryGenerator(
+            summarize_model,
+            self.summary_prompt_template,
+            llm_manager=self._llm_manager
+        )
         
         @before_model
         def summarize_messages(state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
@@ -335,8 +350,12 @@ class MemoryMiddlewareFactory:
         trim_keep_messages = max(2, self.memory_config.trim_keep_messages)
         summarize_model = self.memory_config.summarize_model or self.default_model_name
         
-        # Create summary generator function
-        summary_generator = SummaryGenerator(summarize_model, self.summary_prompt_template)
+        # Create summary generator function (pass llm_manager)
+        summary_generator = SummaryGenerator(
+            summarize_model,
+            self.summary_prompt_template,
+            llm_manager=self._llm_manager
+        )
         
         @before_model
         def trim_and_summarize_messages(state: AgentState, runtime: Runtime) -> dict[str, Any] | None:
@@ -398,7 +417,12 @@ class SummaryGenerator:
     creating summaries from message lists.
     """
     
-    def __init__(self, model_name: str, summary_prompt_template: Optional[str] = None):
+    def __init__(
+        self,
+        model_name: str,
+        summary_prompt_template: Optional[str] = None,
+        llm_manager: Optional[LLMManager] = None
+    ):
         """
         Initialize summary generator.
         
@@ -407,9 +431,14 @@ class SummaryGenerator:
             summary_prompt_template: Optional custom prompt template for summarization.
                                     Should contain {old_summary} and {conversation_text} placeholders.
                                     If None, uses default prompt.
+            llm_manager: LLM manager instance (REQUIRED)
         """
+        if llm_manager is None:
+            raise ValueError("llm_manager is required for SummaryGenerator")
+        
         self.model_name = model_name
         self.summary_prompt_template = summary_prompt_template
+        self._llm_manager = llm_manager
     
     @staticmethod
     def extract_old_summary(system_messages: List[SystemMessage]) -> Optional[str]:
@@ -442,8 +471,8 @@ class SummaryGenerator:
             Summary text
         """
         try:
-            # Get LLM for summarization
-            summarize_llm = get_llm_manager().get_llm(model_name=self.model_name)
+            # Get LLM for summarization using injected LLM manager
+            summarize_llm = self._llm_manager.get_llm(model_name=self.model_name)
             
             logger.info(f"Using {self.model_name} for summarization")
             

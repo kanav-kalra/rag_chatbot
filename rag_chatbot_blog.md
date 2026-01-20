@@ -781,7 +781,7 @@ agent_instructions: |
   - If unsure, recommend consulting a human lawyer
 ```
 
-#### Step 3: The Class (`src/domain/chatbot/legal_chatbot.py`)
+#### Step 3: The Class (`LegalChatbot`)
 
 Minimal boilerplate - just define the type and config filename.
 

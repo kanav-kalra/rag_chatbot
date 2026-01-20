@@ -41,6 +41,15 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("FastAPI application startup initiated.")
     
+    # Initialize application dependency container (pure DI - no service locator)
+    from src.shared.dependencies.container import ApplicationContainer
+    container = ApplicationContainer()
+    container.initialize()
+    
+    # Store container in app state for FastAPI dependency injection
+    app.state.container = container
+    logger.info("Application dependencies initialized and stored in app state")
+    
     # Initialize LangSmith tracing (if enabled)
     try:
         from src.shared.config.langsmith import initialize_langsmith

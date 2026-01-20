@@ -30,7 +30,7 @@ from src.shared.config.langsmith import initialize_langsmith
 from src.domain.retrieval.service import RetrievalService
 from src.infrastructure.vectorstore.manager import get_vector_store
 from src.domain.chatbot.core.config import ChatbotConfigManager, ConfigKeys
-from src.infrastructure.llm.manager import get_llm_manager
+from src.infrastructure.llm.manager import LLMManager
 
 
 # Grade output schemas for each evaluator
@@ -273,6 +273,7 @@ class ChatbotEvaluator:
         self,
         chatbot_getter: Callable,
         chatbot_type: str,
+        llm_manager: LLMManager,
         config_filename: Optional[str] = None,
         config_manager: Optional[ChatbotConfigManager] = None,
         retrieval_k: int = 6,
@@ -285,14 +286,19 @@ class ChatbotEvaluator:
         Args:
             chatbot_getter: Function that returns a chatbot instance (e.g., get_hr_chatbot)
             chatbot_type: Type identifier for the chatbot (e.g., "hr")
+            llm_manager: LLM manager instance (REQUIRED - from dependency injection)
             config_filename: Optional YAML config filename (e.g., "hr_chatbot_config.yaml")
             config_manager: Optional ChatbotConfigManager instance (if None, will create from config_filename)
             retrieval_k: Number of documents to retrieve for fallback retrieval (default: 6)
             grader_model_name: Optional model name for graders (if None, uses chatbot config)
             grader_temperature: Optional temperature for graders (if None, uses 0 for deterministic evaluation)
         """
+        if llm_manager is None:
+            raise ValueError("llm_manager is required for ChatbotEvaluator")
+        
         self.chatbot_getter = chatbot_getter
         self.chatbot_type = chatbot_type
+        self._llm_manager = llm_manager
         self.retrieval_k = retrieval_k
         
         # Initialize LangSmith
@@ -348,9 +354,8 @@ class ChatbotEvaluator:
         
         logger.info(f"Using model for graders: {grader_model_name} (temperature: {grader_temperature})")
         
-        # Use LLM manager to create the grader LLM
-        llm_manager = get_llm_manager()
-        grader_llm = llm_manager.get_llm(
+        # Use injected LLM manager to create the grader LLM
+        grader_llm = self._llm_manager.get_llm(
             model_name=grader_model_name,
             temperature=grader_temperature,
             max_tokens=None,

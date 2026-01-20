@@ -11,6 +11,7 @@ import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Protocol
+from threading import Lock
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent.parent.parent.parent
@@ -757,21 +758,81 @@ class LLMManager:
 
 
 # ============================================================================
-# Global Instance - Singleton Pattern
+# Dependency Injection Container
 # ============================================================================
 
-# Global LLM manager instance
-_global_llm_manager: Optional[LLMManager] = None
-
-
-def get_llm_manager() -> LLMManager:
+class LLMManagerRegistry:
     """
-    Get the global LLM manager instance (singleton pattern).
+    Registry for LLM manager instances.
+    Provides dependency injection without global state.
+    """
+    def __init__(self):
+        self._instances: Dict[str, LLMManager] = {}
+        self._lock = Lock()
     
-    Returns:
-        Global LLMManager instance
-    """
-    global _global_llm_manager
-    if _global_llm_manager is None:
-        _global_llm_manager = LLMManager()
-    return _global_llm_manager
+    def register(
+        self,
+        instance_id: str,
+        llm_manager: LLMManager
+    ) -> None:
+        """Register an LLM manager instance."""
+        with self._lock:
+            self._instances[instance_id] = llm_manager
+            logger.info(f"Registered LLM manager: {instance_id}")
+    
+    def get(self, instance_id: str = "default") -> LLMManager:
+        """
+        Get an LLM manager instance.
+        
+        Args:
+            instance_id: Instance identifier (default: "default")
+        
+        Returns:
+            LLMManager instance
+        
+        Raises:
+            ValueError: If instance not found
+        """
+        with self._lock:
+            if instance_id not in self._instances:
+                available = list(self._instances.keys())
+                raise ValueError(
+                    f"LLM manager '{instance_id}' not found. "
+                    f"Available instances: {available}. "
+                    f"Register it using registry.register('{instance_id}', llm_manager)"
+                )
+            return self._instances[instance_id]
+    
+    def create_and_register(
+        self,
+        instance_id: str = "default",
+        **dependencies
+    ) -> LLMManager:
+        """
+        Create and register an LLM manager instance.
+        
+        Args:
+            instance_id: Instance identifier
+            **dependencies: Dependencies to pass to LLMManager constructor
+        
+        Returns:
+            Created LLMManager instance
+        """
+        llm_manager = LLMManager(**dependencies)
+        self.register(instance_id, llm_manager)
+        return llm_manager
+    
+    def reset(self, instance_id: Optional[str] = None) -> None:
+        """
+        Reset instance(s) - useful for testing.
+        
+        Args:
+            instance_id: Instance to reset (None = reset all)
+        """
+        with self._lock:
+            if instance_id:
+                self._instances.pop(instance_id, None)
+            else:
+                self._instances.clear()
+
+# No global registry - create instances explicitly and pass them around

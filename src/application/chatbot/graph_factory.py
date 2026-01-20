@@ -23,7 +23,8 @@ import yaml
 
 from src.shared.config.settings import settings
 from src.shared.config.logging import logger
-from src.infrastructure.llm.manager import get_llm_manager
+from src.infrastructure.llm.manager import LLMManager
+from src.shared.dependencies.container import ApplicationContainer
 from src.domain.retrieval.service import RetrievalService
 from src.infrastructure.vectorstore import get_vector_store
 
@@ -36,19 +37,23 @@ except Exception as e:
     logger.warning(f"Failed to initialize LangSmith in graph_factory: {e}. Continuing without tracing.")
 
 
-def _create_hr_chatbot_graph():
+def _create_hr_chatbot_graph(llm_manager: LLMManager):
     """
     Create HR chatbot graph for LangGraph Studio visualization.
     
     This function creates an agent graph that can be visualized and debugged
     in LangGraph Studio. It uses the same configuration as the production HR chatbot.
     
+    Args:
+        llm_manager: LLM manager instance (REQUIRED - pure dependency injection)
+    
     Returns:
         LangGraph agent instance (compiled graph)
     """
     try:
-        # Get LLM using settings
-        llm = get_llm_manager().get_llm(
+        
+        # Get LLM using LLM manager
+        llm = llm_manager.get_llm(
             model_name=settings.CHAT_MODEL,
             temperature=settings.CHAT_MODEL_TEMPERATURE,
             max_tokens=settings.CHAT_MODEL_MAX_TOKENS
@@ -96,19 +101,23 @@ def _create_hr_chatbot_graph():
         raise
 
 
-def _create_default_chatbot_graph():
+def _create_default_chatbot_graph(llm_manager: LLMManager):
     """
     Create default chatbot graph for LangGraph Studio visualization.
     
     This function creates a basic agent graph without retrieval tools
     that can be visualized and debugged in LangGraph Studio.
     
+    Args:
+        llm_manager: LLM manager instance (REQUIRED - pure dependency injection)
+    
     Returns:
         LangGraph agent instance (compiled graph)
     """
     try:
-        # Get LLM using settings
-        llm = get_llm_manager().get_llm(
+        
+        # Get LLM using LLM manager
+        llm = llm_manager.get_llm(
             model_name=settings.CHAT_MODEL,
             temperature=settings.CHAT_MODEL_TEMPERATURE,
             max_tokens=settings.CHAT_MODEL_MAX_TOKENS
@@ -135,16 +144,17 @@ def _create_default_chatbot_graph():
 
 # LangGraph Studio requires variables holding compiled graphs, not functions
 # These are created at module import time
-# Note: Ensure .env file is loaded and dependencies are available
+# Note: For LangGraph Studio, we create container explicitly (pure DI, no service locator)
 try:
-    hr_chatbot = _create_hr_chatbot_graph()
+    # Create container explicitly for LangGraph Studio
+    container = ApplicationContainer()
+    container.initialize()
+    llm_manager = container.get_llm_manager()
+    
+    # Create graphs with injected dependencies
+    hr_chatbot = _create_hr_chatbot_graph(llm_manager)
+    default_chatbot = _create_default_chatbot_graph(llm_manager)
 except Exception as e:
-    logger.error(f"Failed to create hr_chatbot graph at import time: {e}")
-    raise
-
-try:
-    default_chatbot = _create_default_chatbot_graph()
-except Exception as e:
-    logger.error(f"Failed to create default_chatbot graph at import time: {e}")
+    logger.error(f"Failed to create graphs at import time: {e}", exc_info=True)
     raise
 
