@@ -4,12 +4,13 @@ This guide covers how to evaluate chatbots using the LLM-as-Judge evaluation fra
 
 ## Overview
 
-The evaluation system uses **LLM-as-Judge** evaluation to assess chatbot performance on four key metrics:
+The evaluation system uses **LLM-as-Judge** evaluation to assess chatbot performance on five key metrics:
 
 1. **Correctness**: How accurate is the answer compared to the ground truth?
 2. **Groundedness**: Is the answer based on retrieved documents (no hallucinations)?
 3. **Relevance**: Does the answer address the question?
 4. **Retrieval Relevance**: Are the retrieved documents relevant to the question?
+5. **Scannability**: Is the answer structured with headers and bullet points for easy scanning?
 
 ### Architecture
 
@@ -177,6 +178,23 @@ if df is not None:
 - **Retrieved Docs**: Documents about vacation accrual, leave types, etc.
 - **Result**: ✅ **True** (documents are relevant)
 
+#### 5. Scannability
+
+**What it measures**: Whether the answer uses visual structure (bold headers, bullet points) for easy scanning.
+
+- **True**: Answer uses bold headers to separate categories and bullet points for factual details
+- **False**: Answer is dense text without clear structure
+
+**Example**:
+- **Question**: "What is the vacation policy?"
+- **Chatbot Answer**: 
+  > **Vacation Accrual**: Employees accrue 1.25 days per month.
+  > 
+  > **Key Details**:
+  > - Maximum carryover: 5 days
+  > - Requires manager approval
+- **Result**: ✅ **True** (uses headers and bullet points effectively)
+
 ### Viewing Results
 
 #### In Terminal
@@ -185,10 +203,11 @@ If pandas is installed, results are displayed as a summary table:
 
 ```
 Metric              Score
-Correctness         0.85
-Groundedness        0.90
-Relevance           0.95
-Retrieval Relevance 0.88
+Correctness         0.78
+Groundedness        1.00
+Relevance           0.97
+Retrieval Relevance 0.95
+Scannability        0.78
 ```
 
 #### In LangSmith
@@ -375,6 +394,7 @@ You can customize evaluator prompts to adjust evaluation criteria. Modify the pr
 - **`RELEVANCE_INSTRUCTIONS`**: Criteria for relevance evaluation
 - **`GROUNDED_INSTRUCTIONS`**: Criteria for groundedness evaluation
 - **`RETRIEVAL_RELEVANCE_INSTRUCTIONS`**: Criteria for retrieval relevance evaluation
+- **`SCANNABILITY_INSTRUCTIONS`**: Criteria for scannability evaluation
 
 Or override them when creating the evaluator:
 
@@ -387,6 +407,7 @@ evaluator = ChatbotEvaluator(
     config_filename="hr_chatbot_config.yaml",
     correctness_instructions="Your custom correctness criteria...",
     relevance_instructions="Your custom relevance criteria...",
+    scannability_instructions="Your custom scannability criteria...",
     # ... other custom instructions
 )
 ```
@@ -437,6 +458,12 @@ evaluator = ChatbotEvaluator(
 - Review embedding model choice
 - Check document quality and organization
 - Consider adding metadata for better filtering
+
+**If Scannability is Low**:
+- Review system prompts to emphasize structured formatting
+- Add instructions for using bold headers and bullet points
+- Check if agent instructions include formatting guidelines
+- Verify that retrieved context supports structured responses
 
 ### 5. Track Experiments
 
