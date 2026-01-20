@@ -409,7 +409,14 @@ memory:
   strategy: "trim"  # Options: "none", "trim", "summarize", "trim_and_summarize"
   trim_keep_messages: 1  # Keep last N messages when trimming
   summarize_threshold: 2  # Summarize when messages exceed this count
+  summarize_model: "gpt-3.5-turbo-16k"  # Model for summarization (should have high context window)
 ```
+
+**Memory Strategy Options:**
+- `none`: Keep all messages (may hit context limits)
+- `trim`: Keep only last N messages (fast, good for short conversations)
+- `summarize`: Summarize old messages when threshold reached (maintains long-term context)
+- `trim_and_summarize`: Combine trim and summarize (recommended for production)
 
 ---
 
@@ -524,30 +531,61 @@ Want to build a specialized "Legal Bot" or "Sales Assistant"? You don't need to 
 
 #### Step 1: The Config (`config/chatbot/legal_chatbot_config.yaml`)
 
-Define the personality, model, and resources.
+Define the personality, model, and resources. Here's a complete example based on the HR chatbot configuration:
 
 ```yaml
+# Model Configuration
 model:
-  name: "gpt-4"
-  temperature: 0.7
-  max_tokens: 2000
+  name: "gpt-4"  # LLM model name (OpenAI, Anthropic, Google, or Ollama)
+  temperature: 0.7  # Temperature (0.0-2.0), controls randomness
+  max_tokens: 2000  # Maximum tokens in response
+  base_url: null  # Optional, for Ollama or custom endpoints
 
+# Vector Store Configuration
 vector_store:
-  type: "legal"
-  persist_dir: "./data/vectorstores/chroma_db/legal_chatbot"
-  collection_name: "legal_docs"
-  embedding_provider: "openai"
-  embedding_model: "text-embedding-3-small"
+  type: "legal"  # Unique identifier (must match chatbot type)
+  persist_dir: "./data/vectorstores/chroma_db/legal_chatbot"  # ChromaDB persistence directory
+  collection_name: "legal_docs"  # Base collection name (auto-suffixed with provider/model)
+  embedding_provider: "openai"  # "auto", "openai", or "google"
+  embedding_model: "text-embedding-3-small"  # Empty = use provider default
+  # Note: Collection names are automatically suffixed with embedding provider and model.
+  # This allows multiple embedding providers to coexist.
+  
+  # Ingestion Configuration (for create_vectorstore.py script)
+  ingestion:
+    folder_path: "/path/to/legal_documents"  # Default folder path containing PDF files
+    chunk_size: 1000  # Maximum size of chunks to return (in characters)
+    chunk_overlap: 200  # Overlap in characters between chunks
+    recursive: true  # If true, search for PDFs recursively in subdirectories
+    indexing_mode: "incremental"  # "incremental" (default) or "full"
+    # - incremental: Only indexes new or changed files (default, recommended)
+    # - full: Always re-indexes everything (clears existing collection)
 
+# System Prompt Configuration
+# If template/agent_instructions_template are null, automatically loads from prompts_file
+system_prompt:
+  prompts_file: "legal_chatbot_prompts.yaml"  # Prompts file (relative to config/chatbot/prompts/)
+  template: null  # If null, uses system_prompt from prompts_file
+  agent_instructions_template: null  # If null, uses agent_instructions from prompts_file
+
+# Tools Configuration
 tools:
-  enable_retrieval: true
+  enable_retrieval: true  # Enable document retrieval tool
+  additional: []  # Additional tools beyond retrieval (list of tool names/classes)
 
+# Memory Configuration
 memory:
-  strategy: "trim"
-  trim_keep_messages: 5
+  strategy: "trim"  # Options: "none", "trim", "summarize", "trim_and_summarize"
+  trim_keep_messages: 5  # Keep last N messages when trimming
+  summarize_threshold: 2  # Summarize when messages exceed this count
+  summarize_model: "gpt-3.5-turbo-16k"  # Model for summarization (should have high context window)
 
+# Agent Pool Configuration
 agent_pool:
-  size: 2
+  size: 2  # Number of shared agents (default: 1)
+
+# Verbose Logging
+verbose: false  # Enable verbose logging for debugging
 ```
 
 #### Step 2: The Prompts (`config/chatbot/prompts/legal_prompts.yaml`)
