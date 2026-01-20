@@ -45,11 +45,14 @@ python scripts/ingestion/create_vectorstore.py \
 ### Command Options
 
 - **`--chatbot-type`**: Chatbot type identifier (required)
-- **`--folder-path`**: Path to folder containing PDFs (required)
-- **`--chunk-size`**: Maximum chunk size in characters (default: 1000)
-- **`--chunk-overlap`**: Overlap between chunks in characters (default: 200)
-- **`--recursive`**: Search subdirectories (default: true)
-- **`--clear-existing`**: Delete existing collection before adding documents
+- **`--folder`**: Path to folder containing PDFs (default: from `vector_store.ingestion.folder_path` in config)
+- **`--chunk-size`**: Maximum chunk size in characters (default: from `vector_store.ingestion.chunk_size` in config, or 1000)
+- **`--chunk-overlap`**: Overlap between chunks in characters (default: from `vector_store.ingestion.chunk_overlap` in config, or 200)
+- **`--recursive`**: Search subdirectories (default: from `vector_store.ingestion.recursive` in config, or true)
+- **`--indexing-mode`**: Indexing mode - `incremental` (default) or `full`
+  - **`incremental`**: Only indexes new or changed files (efficient, skips if no changes)
+  - **`full`**: Always re-indexes everything (clears existing collection)
+- **`--clear-existing`**: Delete existing collection before adding documents (equivalent to `--indexing-mode full`)
 - **`--skip-if-exists`**: Skip if collection already exists
 - **`--embedding-provider`**: Override embedding provider (auto/openai/google)
 - **`--embedding-model`**: Override embedding model
@@ -91,33 +94,55 @@ Embeddings are generated using:
 
 ## Updating a Vector Store
 
-### Reindexing Documents
+### Incremental Indexing (Default)
 
-If documents change, reindex them:
-
-```bash
-python scripts/ingestion/reindex_if_changed.py \
-  --chatbot-type hr \
-  --folder-path /path/to/pdfs
-```
-
-This script:
-- Checks if documents have changed
-- Only reindexes changed documents
-- Preserves existing embeddings for unchanged documents
-
-### Clearing and Rebuilding
-
-To completely rebuild a vector store:
+By default, the script uses **incremental indexing** mode, which only indexes new or changed files. This is the most efficient approach for regular updates.
 
 ```bash
 python scripts/ingestion/create_vectorstore.py \
   --chatbot-type hr \
-  --folder-path /path/to/pdfs \
+  --folder /path/to/pdfs \
+  --indexing-mode incremental
+```
+
+**How it works:**
+- Compares file modification times and sizes with indexed files
+- Only processes new files or files that have changed
+- Removes old chunks for changed files before re-indexing
+- Skips indexing entirely if no changes detected
+- Preserves existing embeddings for unchanged documents
+
+**Benefits:**
+- Fast updates (only processes what changed)
+- Efficient resource usage
+- Automatic change detection
+
+### Full Re-indexing
+
+To completely rebuild a vector store (clears existing and re-indexes everything):
+
+```bash
+python scripts/ingestion/create_vectorstore.py \
+  --chatbot-type hr \
+  --folder /path/to/pdfs \
+  --indexing-mode full
+```
+
+Or use the equivalent:
+
+```bash
+python scripts/ingestion/create_vectorstore.py \
+  --chatbot-type hr \
+  --folder /path/to/pdfs \
   --clear-existing
 ```
 
-**Warning**: This deletes all existing documents in the collection.
+**Warning**: This deletes all existing documents in the collection and rebuilds from scratch.
+
+**When to use:**
+- After changing chunk size or overlap settings
+- When switching embedding providers/models
+- When you want to ensure a completely fresh index
 
 ## Multiple Embeddings
 
@@ -143,6 +168,14 @@ vector_store:
   collection_name: "hr_chatbot"  # Base name (will be auto-suffixed)
   embedding_provider: "auto"  # or "openai", "google"
   embedding_model: ""  # Empty = use provider default
+  
+  # Ingestion Configuration (for create_vectorstore.py script)
+  ingestion:
+    folder_path: "/path/to/pdfs"  # Default folder path containing PDF files
+    chunk_size: 1000  # Maximum size of chunks to return (in characters)
+    chunk_overlap: 200  # Overlap in characters between chunks
+    recursive: true  # If true, search for PDFs recursively in subdirectories
+    indexing_mode: "incremental"  # "incremental" (default) or "full"
 ```
 
 ### Configuration Options
@@ -209,8 +242,9 @@ ChromaDB stores metadata about collections. You can inspect:
 
 ### Regular Updates
 
-- Reindex when documents change
-- Monitor document count
+- Use incremental indexing (default) for regular updates - it automatically detects and indexes only changed files
+- Run full re-indexing when changing chunk settings or embedding providers
+- Monitor document count to ensure updates are working
 - Check retrieval quality regularly
 
 ## Troubleshooting

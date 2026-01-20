@@ -268,12 +268,24 @@ vector_store = Chroma.from_documents(
 
 **CLI Usage:**
 ```bash
+# Incremental indexing (default) - only indexes new/changed files
 python scripts/ingestion/create_vectorstore.py \
   --chatbot-type hr \
   --folder ./policies \
   --chunk-size 1000 \
-  --chunk-overlap 200
+  --chunk-overlap 200 \
+  --indexing-mode incremental
+
+# Full re-indexing - clears and rebuilds everything
+python scripts/ingestion/create_vectorstore.py \
+  --chatbot-type hr \
+  --folder ./policies \
+  --indexing-mode full
 ```
+
+**Indexing Modes:**
+- **`incremental`** (default): Efficiently indexes only new or changed files, automatically skips if no changes detected
+- **`full`**: Always re-indexes everything (clears existing collection first)
 
 ---
 
@@ -591,14 +603,26 @@ def get_legal_chatbot() -> LegalChatbot:
 
 #### Step 4: Ingest Your Data
 
-Load your PDFs/Documents into the vector store.
+Load your PDFs/Documents into the vector store. The script uses incremental indexing by default, which only processes new or changed files on subsequent runs.
 
 ```bash
+# First time - creates the vector store
 python scripts/ingestion/create_vectorstore.py \
   --chatbot-type legal \
   --folder ./legal_documents \
   --chunk-size 1000 \
   --chunk-overlap 200
+
+# Later updates - automatically detects and indexes only changed files
+python scripts/ingestion/create_vectorstore.py \
+  --chatbot-type legal \
+  --folder ./legal_documents
+
+# Force full re-index (clears existing)
+python scripts/ingestion/create_vectorstore.py \
+  --chatbot-type legal \
+  --folder ./legal_documents \
+  --indexing-mode full
 ```
 
 **Verify the vector store:**
