@@ -28,11 +28,11 @@ from src.shared.config.logging import logger
 from src.infrastructure.llm.manager import get_llm_manager
 from src.infrastructure.storage.checkpointing.manager import get_checkpointer
 from src.shared.memory.config import MemoryConfig, MemoryStrategy, MemoryConfigFactory
-from src.domain.memory.manager import MemoryManager
 from src.application.chatbot.agent_pool import get_agent_pool
 from src.domain.chatbot.core.config import ChatbotConfigManager, ConfigKeys
 from src.domain.chatbot.core.tools import ChatbotToolFactory
 from src.domain.chatbot.core.prompts import ChatbotPromptBuilder
+from src.domain.chatbot.core.memory_middleware import MemoryMiddlewareFactory
 from src.shared.utils.token_counting_wrapper import (
     collect_token_data,
     process_token_counting
@@ -124,6 +124,21 @@ class ChatbotAgent(ABC):
     The core chat functionality, memory management, and agent initialization
     are handled by this base class. Subclasses only need to customize
     configuration and behavior through the extension hooks above.
+    
+    Memory Management:
+    ------------------
+    Short-term memory is managed using LangChain's built-in middleware system,
+    created by the MemoryMiddlewareFactory class (following SOLID principles):
+    - Trim strategy: Uses @before_model middleware to remove old messages,
+      keeping only the most recent ones based on trim_keep_messages config
+    - Summarize strategy: Uses @before_model middleware to summarize old
+      messages when threshold is reached, keeping recent messages intact
+    - Trim and Summarize: Combines both middleware functions for hybrid approach
+    
+    Memory operations are applied automatically before each model call via
+    the checkpointer's state management. All memory-related code is separated
+    into the MemoryMiddlewareFactory class for better maintainability and
+    adherence to Single Responsibility Principle.
     
     Token Counting:
     --------------
@@ -374,6 +389,7 @@ class ChatbotAgent(ABC):
             logger.debug(f"Could not initialize token counting: {e}")
             self._token_counting_wrapper = None
     
+    
     def _initialize_agent(self) -> None:
         """Initialize the LangChain agent with checkpointer and memory management."""
         try:
@@ -389,21 +405,34 @@ class ChatbotAgent(ABC):
             # Get checkpointer for short-term memory
             checkpointer = get_checkpointer()
             
-            # Create memory manager for processing messages
-            self._memory_manager = MemoryManager(self.memory_config) if self.memory_config.strategy.value != "none" else None
+            # Get summary prompt template from prompt builder if available
+            summary_prompt_template = None
+            if self._prompt_builder:
+                summary_prompt_template = self._prompt_builder.get_summary_prompt_template()
+            
+            # Create memory management middleware using factory
+            memory_factory = MemoryMiddlewareFactory(
+                memory_config=self.memory_config,
+                default_model_name=self.model_name,
+                summary_prompt_template=summary_prompt_template
+            )
+            memory_middleware = memory_factory.create_middleware()
             
             # Create agent using create_agent (LangChain 1.0+ API)
+            # Pass middleware if memory strategy is not "none"
             self._agent = create_agent(
                 model=llm,
                 tools=self.tools,
                 system_prompt=self.system_prompt,
                 checkpointer=checkpointer,
+                middleware=memory_middleware if memory_middleware else None,
                 debug=self.verbose
             )
             
             logger.info(
                 f"Initialized ChatbotAgent with model: {self.model_name}, "
-                f"memory_strategy: {self.memory_config.strategy.value}"
+                f"memory_strategy: {self.memory_config.strategy.value}, "
+                f"middleware: {len(memory_middleware)} middleware functions"
             )
             
         except Exception as e:
