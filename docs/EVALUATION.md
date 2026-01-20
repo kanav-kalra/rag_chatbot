@@ -388,7 +388,7 @@ python evaluations/{chatbot_type}/evaluate_{chatbot_type}_chatbot.py
 
 ## Customizing Evaluators
 
-You can customize evaluator prompts to adjust evaluation criteria. Modify the prompts in `evaluations/core/evaluator.py`:
+You can customize evaluator prompts to adjust evaluation criteria. Modify the prompts in `ChatbotEvaluator`:
 
 - **`CORRECTNESS_INSTRUCTIONS`**: Criteria for correctness evaluation
 - **`RELEVANCE_INSTRUCTIONS`**: Criteria for relevance evaluation
