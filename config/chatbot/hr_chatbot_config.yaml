@@ -22,6 +22,16 @@ vector_store:
   # Note: Collection names are automatically suffixed with embedding provider and model.
   # This allows multiple embedding providers to coexist. Change embedding_provider to switch
   # between different embeddings without recreating the vector store.
+  
+  # Ingestion Configuration (for create_vectorstore.py script)
+  ingestion:
+    folder_path: "/Users/kanavkalra/Data/genAI/projects/policies"  # Default folder path containing PDF files
+    chunk_size: 1000  # Maximum size of chunks to return (in characters)
+    chunk_overlap: 200  # Overlap in characters between chunks
+    recursive: true  # If true, search for PDFs recursively in subdirectories
+    indexing_mode: "incremental"  # Indexing mode: "incremental" (default) or "full"
+    # - incremental: Only indexes new or changed files (default, recommended, skips if no changes)
+    # - full: Always re-indexes everything (clears existing collection)
 
 # System Prompt Configuration
 # If template/agent_instructions_template are null, automatically loads from prompts_file

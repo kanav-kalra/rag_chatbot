@@ -97,9 +97,17 @@ model:
 vector_store:
   type: "hr"  # Unique identifier (must match chatbot type)
   persist_dir: "./data/vectorstores/chroma_db/hr_chatbot"
-  collection_name: "hr_chatbot"
+  collection_name: "hr_chatbot"  # Base name (auto-suffixed with provider/model)
   embedding_provider: "auto"  # "auto", "openai", or "google"
   embedding_model: ""  # Empty = use provider default
+  
+  # Ingestion Configuration (for create_vectorstore.py script)
+  ingestion:
+    folder_path: "/path/to/pdfs"  # Default folder path containing PDF files
+    chunk_size: 1000  # Maximum size of chunks (in characters)
+    chunk_overlap: 200  # Overlap between chunks (in characters)
+    recursive: true  # Search subdirectories recursively
+    indexing_mode: "incremental"  # "incremental" (default) or "full"
 ```
 
 **Embedding Providers**:
@@ -110,6 +118,15 @@ vector_store:
 **Embedding Models**:
 - OpenAI: `text-embedding-3-small`, `text-embedding-3-large`, `text-embedding-ada-002`
 - Google: `models/embedding-001`
+
+**Ingestion Configuration**:
+- `folder_path`: Default folder path for PDF documents (can be overridden via CLI)
+- `chunk_size`: Default chunk size in characters (recommended: 1000-1500)
+- `chunk_overlap`: Default overlap between chunks (recommended: 200-300)
+- `recursive`: Whether to search subdirectories for PDFs (default: true)
+- `indexing_mode`: Indexing strategy
+  - `incremental` (default): Only indexes new or changed files (efficient, recommended)
+  - `full`: Always re-indexes everything (clears existing collection)
 
 ### System Prompt Configuration
 
