@@ -205,18 +205,29 @@ Run it:
 ### Option B: Direct Command
 
 ```bash
+# Incremental indexing (default) - only indexes new/changed files
 python scripts/ingestion/create_vectorstore.py \
   --chatbot-type support \
-  --folder-path /path/to/your/documents \
+  --folder /path/to/your/documents \
   --chunk-size 1000 \
-  --chunk-overlap 200
+  --chunk-overlap 200 \
+  --indexing-mode incremental
+
+# Full re-indexing - clears and rebuilds everything
+python scripts/ingestion/create_vectorstore.py \
+  --chatbot-type support \
+  --folder /path/to/your/documents \
+  --indexing-mode full
 ```
 
 ### Vector Store Options
 
-- **`--folder-path`**: Path to folder containing PDFs
-- **`--chunk-size`**: Maximum chunk size (default: 1000)
-- **`--chunk-overlap`**: Overlap between chunks (default: 200)
+- **`--folder`**: Path to folder containing PDFs (default: from config)
+- **`--chunk-size`**: Maximum chunk size (default: from config or 1000)
+- **`--chunk-overlap`**: Overlap between chunks (default: from config or 200)
+- **`--indexing-mode`**: Indexing strategy
+  - `incremental` (default): Only indexes new or changed files (efficient)
+  - `full`: Always re-indexes everything (clears existing collection)
 - **`--recursive`**: Search subdirectories (default: true)
 - **`--clear-existing`**: Delete existing collection first
 - **`--skip-if-exists`**: Skip if collection already exists
@@ -310,6 +321,15 @@ vector_store:
   persist_dir: "./data/vectorstores/chroma_db/customer_service_chatbot"
   collection_name: "customer_service_chatbot"
   embedding_provider: "auto"
+  embedding_model: ""  # Empty = use provider default
+  
+  # Ingestion Configuration (optional, for create_vectorstore.py defaults)
+  ingestion:
+    folder_path: "/path/to/customer_service_docs"
+    chunk_size: 1000
+    chunk_overlap: 200
+    recursive: true
+    indexing_mode: "incremental"  # "incremental" (default) or "full"
 
 system_prompt:
   prompts_file: "customer_service_chatbot_prompts.yaml"
@@ -366,9 +386,15 @@ def get_customer_service_chatbot():
 ### 4. Vector Store
 
 ```bash
+# Create vector store (incremental indexing by default)
 python scripts/ingestion/create_vectorstore.py \
   --chatbot-type customer_service \
-  --folder-path /path/to/customer_service_docs
+  --folder /path/to/customer_service_docs
+
+# Later updates automatically detect and index only changed files
+python scripts/ingestion/create_vectorstore.py \
+  --chatbot-type customer_service \
+  --folder /path/to/customer_service_docs
 ```
 
 ## Troubleshooting
