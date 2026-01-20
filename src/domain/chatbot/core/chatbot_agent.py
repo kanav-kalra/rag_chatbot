@@ -33,6 +33,10 @@ from src.application.chatbot.agent_pool import get_agent_pool
 from src.domain.chatbot.core.config import ChatbotConfigManager, ConfigKeys
 from src.domain.chatbot.core.tools import ChatbotToolFactory
 from src.domain.chatbot.core.prompts import ChatbotPromptBuilder
+from src.shared.utils.token_counting_wrapper import (
+    collect_token_data,
+    process_token_counting
+)
 
 
 # Class-level cache for chatbot types to avoid creating instances just to get the type
@@ -120,6 +124,28 @@ class ChatbotAgent(ABC):
     The core chat functionality, memory management, and agent initialization
     are handled by this base class. Subclasses only need to customize
     configuration and behavior through the extension hooks above.
+    
+    Token Counting:
+    --------------
+    Token counting is automatically integrated into the chat workflow. It can be
+    enabled/disabled via configuration:
+    
+    - YAML config: Add `token_counting.enabled: true` to your chatbot config file
+    - Environment variable: Set `ENABLE_TOKEN_COUNTING=true`
+    
+    When enabled, the chat() method automatically:
+    - Collects token data (query, enhanced_query, system_prompt, history)
+    - Extracts context from RAG retrieval
+    - Counts tokens for all components
+    - Logs detailed breakdown with input/output counts and cost estimates
+    
+    Token counting uses utility functions from src.shared.utils.token_counting_wrapper:
+    - collect_token_data(): Gathers input data before agent invocation
+    - process_token_counting(): Processes and logs token counts after agent invocation
+    
+    The token counting functionality is completely optional and has no performance
+    impact when disabled. All token counting logic is separated into utility functions
+    to keep the core chatbot logic clean.
     """
     
     @abstractmethod
@@ -279,6 +305,10 @@ class ChatbotAgent(ABC):
         # Create the agent
         self._agent = None
         self._initialize_agent()
+        
+        # Initialize token counting wrapper (if enabled)
+        self._token_counting_wrapper = None
+        self._initialize_token_counting()
     
     def _get_model_name(self) -> str:
         """Get model name from config or settings."""
@@ -315,6 +345,34 @@ class ChatbotAgent(ABC):
         if self._config_manager:
             return self._config_manager.get(ConfigKeys.VERBOSE, False)
         return False
+    
+    def _initialize_token_counting(self) -> None:
+        """Initialize token counting wrapper if enabled in config."""
+        try:
+            from src.shared.utils.token_counting_wrapper import TokenCountingWrapper
+            
+            # Check if token counting is enabled
+            enabled = False
+            if self._config_manager:
+                enabled = self._config_manager.get(ConfigKeys.TOKEN_COUNTING_ENABLED, False)
+                if isinstance(enabled, str):
+                    enabled = enabled.lower() in ('true', '1', 'yes', 'on')
+            
+            # Also check environment variable
+            import os
+            env_enabled = os.getenv("ENABLE_TOKEN_COUNTING", "").lower()
+            if env_enabled:
+                enabled = env_enabled in ('true', '1', 'yes', 'on')
+            
+            if enabled:
+                self._token_counting_wrapper = TokenCountingWrapper(
+                    enabled=True,
+                    model_name=self.model_name
+                )
+                logger.info(f"Token counting enabled for {self.chatbot_type} chatbot")
+        except Exception as e:
+            logger.debug(f"Could not initialize token counting: {e}")
+            self._token_counting_wrapper = None
     
     def _initialize_agent(self) -> None:
         """Initialize the LangChain agent with checkpointer and memory management."""
@@ -370,39 +428,105 @@ class ChatbotAgent(ABC):
         """
         Chat with the chatbot agent using checkpointer for memory management.
         
+        This method handles the complete chat interaction workflow:
+        1. Topic detection and query enhancement (if topic not provided)
+        2. Token counting data collection (if token counting is enabled)
+        3. Agent invocation with enhanced query
+        4. Response extraction
+        5. Token counting processing and logging (if enabled)
+        
+        The method uses the checkpointer for maintaining conversation context across
+        multiple interactions within the same thread. Token counting is automatically
+        handled if enabled in the chatbot configuration.
+        
         Args:
-            query: User's question
-            thread_id: Thread/session identifier for maintaining conversation context
-            user_id: Optional user identifier
-            topic: Optional topic identifier (e.g., "leave_policy", "benefits"). 
-                   If None, topic will be auto-detected from the query.
+            query: User's question or message
+            thread_id: Thread/session identifier for maintaining conversation context.
+                      Messages within the same thread_id share conversation history.
+            user_id: Optional user identifier for user-specific context or history
+            topic: Optional topic identifier (e.g., "leave_policy", "benefits", "compensation").
+                   If None, the topic will be auto-detected from the query using the
+                   prompt builder's topic detection functionality.
         
         Returns:
-            Agent's response as a string
+            Agent's response as a string. The response is generated by the LLM agent
+            using RAG (retrieval-augmented generation) if retrieval tools are enabled.
+        
+        Raises:
+            RuntimeError: If agent is not properly initialized
+            Exception: Various exceptions may occur during agent invocation, which are
+                      caught and returned as error messages to the user.
+        
+        Example:
+            >>> chatbot = HRChatbot.get_from_pool()
+            >>> response = chatbot.chat(
+            ...     query="What is the leave policy?",
+            ...     thread_id="thread-123",
+            ...     user_id="user-456"
+            ... )
+            >>> print(response)
+            "The leave policy allows employees to take up to 20 days of paid leave..."
+        
+        Token Counting:
+        --------------
+        If token counting is enabled (via config or environment variable), this method
+        automatically:
+        - Collects token data (query, enhanced_query, system_prompt, history)
+        - Extracts context from agent result
+        - Processes and logs token counts for all components
+        - Provides cost estimates based on the model used
+        
+        See Also:
+        --------
+        - collect_token_data: Collects token counting data before agent invocation
+        - process_token_counting: Processes and logs token counts after agent invocation
         """
         try:
             # Prepare input messages
             from langchain_core.messages import HumanMessage
             from src.infrastructure.storage.checkpointing.manager import get_checkpointer_manager
             
-            # Detect topic if not provided
+            # Step 1: Topic detection and query enhancement
+            # Detect topic if not provided (enables topic-specific prompt guidance)
             if topic is None and self._prompt_builder:
                 topic = self._prompt_builder.detect_topic(query)
             
             # Enhance query with topic-specific guidance if topic is detected
             enhanced_query = self._enhance_query_with_topic(query, topic)
             
+            # Step 2: Token counting setup (optional, only if enabled in config)
+            # Get observer if token counting is enabled (disabled if _token_counting_wrapper is None)
+            observer = None
+            if self._token_counting_wrapper:
+                observer = self._token_counting_wrapper.get_observer()
+            
+            # Collect token counting data before agent invocation
+            # This gathers: query, enhanced_query, system_prompt, and conversation history
+            token_data = {}
+            if observer:
+                token_data = collect_token_data(
+                    query, enhanced_query, thread_id, user_id, self.system_prompt
+                )
+            
+            # Step 3: Agent invocation
+            # Use enhanced query for agent invocation (includes topic guidance if applicable)
             messages = [HumanMessage(content=enhanced_query)]
             inputs = {"messages": messages}
             
-            # Create config with thread_id for checkpointer
+            # Create config with thread_id for checkpointer (maintains conversation history)
             config = get_checkpointer_manager().get_config(thread_id, user_id)
             
-            # Invoke agent with checkpointer config
+            # Invoke agent with checkpointer config (agent uses RAG if retrieval tools enabled)
             result = self.agent.invoke(inputs, config=config)
             
-            # Extract response from the result
+            # Step 4: Response extraction
+            # Extract response text from agent result (handles multiple LLM provider formats)
             response = self._extract_response(result)
+            
+            # Step 5: Token counting processing (optional, only if enabled)
+            # Updates token_data with context and response, then processes and logs token counts
+            if observer:
+                process_token_counting(observer, token_data, result, response, self.model_name)
             
             logger.debug(
                 f"Chat response generated (length: {len(response)} chars, "
