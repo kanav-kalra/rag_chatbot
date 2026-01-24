@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 from datetime import timedelta
+from threading import Lock
 from fastapi import Depends, HTTPException, Header, Cookie
 
 # Add project root to Python path
@@ -20,23 +21,27 @@ from src.domain.session.manager import ChatbotSession, ChatbotSessionManager
 
 # Global session manager singleton
 _session_manager: Optional[ChatbotSessionManager] = None
+_session_manager_lock = Lock()
 
 
 def get_session_manager() -> ChatbotSessionManager:
     """
     Get or create the global session manager singleton.
-    Thread-safe singleton pattern.
+    Thread-safe double-checked locking pattern.
     
     Returns:
         ChatbotSessionManager instance
     """
     global _session_manager
     if _session_manager is None:
-        _session_manager = ChatbotSessionManager(
-            session_timeout=timedelta(hours=settings.SESSION_TIMEOUT_HOURS),
-            max_sessions=settings.MAX_CONCURRENT_SESSIONS
-        )
-        logger.info("Session manager initialized")
+        with _session_manager_lock:
+            # Double-check after acquiring lock
+            if _session_manager is None:
+                _session_manager = ChatbotSessionManager(
+                    session_timeout=timedelta(hours=settings.SESSION_TIMEOUT_HOURS),
+                    max_sessions=settings.MAX_CONCURRENT_SESSIONS
+                )
+                logger.info("Session manager initialized")
     
     return _session_manager
 
