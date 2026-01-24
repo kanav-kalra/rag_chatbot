@@ -11,6 +11,7 @@ import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Protocol
+from threading import Lock
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent.parent.parent.parent
@@ -86,10 +87,12 @@ class DefaultModelConfigRepository:
     """
     Manages model configurations.
     Single Responsibility: Only responsible for storing and retrieving model configs.
+    Thread-safe implementation.
     """
     
     def __init__(self):
         self._configs: Dict[str, Dict[str, Any]] = self._load_default_configs()
+        self._configs_lock = Lock()
     
     def _load_default_configs(self) -> Dict[str, Dict[str, Any]]:
         """Load default model configurations"""
@@ -252,27 +255,31 @@ class DefaultModelConfigRepository:
         }
     
     def get_config(self, model_name: str) -> Dict[str, Any]:
-        """Get configuration for a model"""
-        if not self.has_model(model_name):
-            available_models = ", ".join(self.list_models())
-            raise ValueError(
-                f"Model '{model_name}' is not supported. "
-                f"Available models: {available_models}"
-            )
-        return self._configs[model_name]
+        """Get configuration for a model (thread-safe)"""
+        with self._configs_lock:
+            if not self.has_model(model_name):
+                available_models = ", ".join(self.list_models())
+                raise ValueError(
+                    f"Model '{model_name}' is not supported. "
+                    f"Available models: {available_models}"
+                )
+            return self._configs[model_name]
     
     def has_model(self, model_name: str) -> bool:
-        """Check if model exists"""
-        return model_name in self._configs
+        """Check if model exists (thread-safe)"""
+        with self._configs_lock:
+            return model_name in self._configs
     
     def list_models(self) -> List[str]:
-        """List all available models"""
-        return list(self._configs.keys())
+        """List all available models (thread-safe)"""
+        with self._configs_lock:
+            return list(self._configs.keys())
     
     def register_model(self, model_name: str, config: Dict[str, Any]) -> None:
-        """Register a new model configuration (Open/Closed Principle)"""
-        self._configs[model_name] = config
-        logger.info(f"Registered model: {model_name}")
+        """Register a new model configuration (Open/Closed Principle, thread-safe)"""
+        with self._configs_lock:
+            self._configs[model_name] = config
+            logger.info(f"Registered model: {model_name}")
 
 
 # ============================================================================
@@ -517,35 +524,42 @@ class LLMCache:
     """
     Manages caching of LLM instances.
     Single Responsibility: Only responsible for caching operations.
+    Thread-safe implementation.
     """
     
     def __init__(self):
         self._cache: Dict[str, BaseChatModel] = {}
+        self._cache_lock = Lock()
     
     def get(self, key: str) -> Optional[BaseChatModel]:
-        """Get cached LLM instance"""
-        return self._cache.get(key)
+        """Get cached LLM instance (thread-safe)"""
+        with self._cache_lock:
+            return self._cache.get(key)
     
     def set(self, key: str, llm: BaseChatModel) -> None:
-        """Cache an LLM instance"""
-        self._cache[key] = llm
-        logger.debug(f"Cached LLM instance: {key}")
+        """Cache an LLM instance (thread-safe)"""
+        with self._cache_lock:
+            self._cache[key] = llm
+            logger.debug(f"Cached LLM instance: {key}")
     
     def has(self, key: str) -> bool:
-        """Check if key exists in cache"""
-        return key in self._cache
+        """Check if key exists in cache (thread-safe)"""
+        with self._cache_lock:
+            return key in self._cache
     
     def clear(self) -> None:
-        """Clear the cache"""
-        self._cache.clear()
-        logger.info("Cleared LLM cache")
+        """Clear the cache (thread-safe)"""
+        with self._cache_lock:
+            self._cache.clear()
+            logger.info("Cleared LLM cache")
     
     def get_cached_instances(self) -> Dict[str, str]:
-        """Get information about cached instances"""
-        return {
-            key: str(type(llm).__name__)
-            for key, llm in self._cache.items()
-        }
+        """Get information about cached instances (thread-safe)"""
+        with self._cache_lock:
+            return {
+                key: str(type(llm).__name__)
+                for key, llm in self._cache.items()
+            }
     
     def generate_cache_key(
         self,
@@ -757,21 +771,81 @@ class LLMManager:
 
 
 # ============================================================================
-# Global Instance - Singleton Pattern
+# Dependency Injection Container
 # ============================================================================
 
-# Global LLM manager instance
-_global_llm_manager: Optional[LLMManager] = None
-
-
-def get_llm_manager() -> LLMManager:
+class LLMManagerRegistry:
     """
-    Get the global LLM manager instance (singleton pattern).
+    Registry for LLM manager instances.
+    Provides dependency injection without global state.
+    """
+    def __init__(self):
+        self._instances: Dict[str, LLMManager] = {}
+        self._lock = Lock()
     
-    Returns:
-        Global LLMManager instance
-    """
-    global _global_llm_manager
-    if _global_llm_manager is None:
-        _global_llm_manager = LLMManager()
-    return _global_llm_manager
+    def register(
+        self,
+        instance_id: str,
+        llm_manager: LLMManager
+    ) -> None:
+        """Register an LLM manager instance."""
+        with self._lock:
+            self._instances[instance_id] = llm_manager
+            logger.info(f"Registered LLM manager: {instance_id}")
+    
+    def get(self, instance_id: str = "default") -> LLMManager:
+        """
+        Get an LLM manager instance.
+        
+        Args:
+            instance_id: Instance identifier (default: "default")
+        
+        Returns:
+            LLMManager instance
+        
+        Raises:
+            ValueError: If instance not found
+        """
+        with self._lock:
+            if instance_id not in self._instances:
+                available = list(self._instances.keys())
+                raise ValueError(
+                    f"LLM manager '{instance_id}' not found. "
+                    f"Available instances: {available}. "
+                    f"Register it using registry.register('{instance_id}', llm_manager)"
+                )
+            return self._instances[instance_id]
+    
+    def create_and_register(
+        self,
+        instance_id: str = "default",
+        **dependencies
+    ) -> LLMManager:
+        """
+        Create and register an LLM manager instance.
+        
+        Args:
+            instance_id: Instance identifier
+            **dependencies: Dependencies to pass to LLMManager constructor
+        
+        Returns:
+            Created LLMManager instance
+        """
+        llm_manager = LLMManager(**dependencies)
+        self.register(instance_id, llm_manager)
+        return llm_manager
+    
+    def reset(self, instance_id: Optional[str] = None) -> None:
+        """
+        Reset instance(s) - useful for testing.
+        
+        Args:
+            instance_id: Instance to reset (None = reset all)
+        """
+        with self._lock:
+            if instance_id:
+                self._instances.pop(instance_id, None)
+            else:
+                self._instances.clear()
+
+# No global registry - create instances explicitly and pass them around

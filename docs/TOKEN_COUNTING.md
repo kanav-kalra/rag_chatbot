@@ -178,9 +178,9 @@ process_token_counting(observer, token_data, result, response, "gpt-4")
 
 ### Module Location
 
-Token counting utilities are located in:
-- `src/shared/utils/token_counting_wrapper.py`: Core token counting functionality
-- `src/shared/utils/token_counter.py`: Token counting implementation
+Token counting utilities are provided by:
+- `TokenCountingWrapper`: Core token counting functionality and observer management
+- `TokenCounter`: Token counting implementation and cost estimation
 
 ### Integration Points
 

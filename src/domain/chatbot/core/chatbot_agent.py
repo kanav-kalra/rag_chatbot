@@ -25,7 +25,7 @@ from langchain.agents import create_agent
 
 from src.shared.config.settings import settings
 from src.shared.config.logging import logger
-from src.infrastructure.llm.manager import get_llm_manager
+from src.infrastructure.llm.manager import LLMManager
 from src.infrastructure.storage.checkpointing.manager import get_checkpointer
 from src.shared.memory.config import MemoryConfig, MemoryStrategy, MemoryConfigFactory
 from src.application.chatbot.agent_pool import get_agent_pool
@@ -189,12 +189,15 @@ class ChatbotAgent(ABC):
     
     @classmethod
     @abstractmethod
-    def _get_default_instance(cls):
+    def _get_default_instance(cls, llm_manager: LLMManager):
         """
         Get or create a default instance of this chatbot type.
         Must be implemented by subclasses.
         
         This is used by the agent pool to create new instances.
+        
+        Args:
+            llm_manager: LLM manager instance (REQUIRED)
         
         Returns:
             Instance of the chatbot subclass with default configuration
@@ -253,6 +256,7 @@ class ChatbotAgent(ABC):
     
     def __init__(
         self,
+        llm_manager,  # LLMManager - required, no default
         model_name: Optional[str] = None,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
@@ -267,6 +271,7 @@ class ChatbotAgent(ABC):
         Initialize chatbot agent.
         
         Args:
+            llm_manager: LLM manager instance (REQUIRED - from dependency injection)
             model_name: Name of the LLM model to use (default: from YAML config or settings.CHAT_MODEL)
             temperature: Temperature for the model (default: from YAML config or settings.CHAT_MODEL_TEMPERATURE)
             max_tokens: Maximum tokens for responses (default: from YAML config or settings.CHAT_MODEL_MAX_TOKENS)
@@ -277,6 +282,13 @@ class ChatbotAgent(ABC):
             base_url: Base URL for the model API (default: from YAML config or None)
             memory_config: Memory configuration for managing chat history (optional)
         """
+        if llm_manager is None:
+            raise ValueError(
+                "llm_manager is required. "
+                "Pass an LLMManager instance via dependency injection."
+            )
+        
+        self._llm_manager = llm_manager
         # Initialize config manager
         config_filename = self.__class__._get_config_filename()
         try:
@@ -393,8 +405,8 @@ class ChatbotAgent(ABC):
     def _initialize_agent(self) -> None:
         """Initialize the LangChain agent with checkpointer and memory management."""
         try:
-            # Get LLM using LLM manager
-            llm = get_llm_manager().get_llm(
+            # Get LLM using injected LLM manager
+            llm = self._llm_manager.get_llm(
                 model_name=self.model_name,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
@@ -410,11 +422,12 @@ class ChatbotAgent(ABC):
             if self._prompt_builder:
                 summary_prompt_template = self._prompt_builder.get_summary_prompt_template()
             
-            # Create memory management middleware using factory
+            # Create memory management middleware using factory (pass llm_manager)
             memory_factory = MemoryMiddlewareFactory(
                 memory_config=self.memory_config,
                 default_model_name=self.model_name,
-                summary_prompt_template=summary_prompt_template
+                summary_prompt_template=summary_prompt_template,
+                llm_manager=self._llm_manager
             )
             memory_middleware = memory_factory.create_middleware()
             
@@ -716,7 +729,7 @@ class ChatbotAgent(ABC):
         logger.info(f"Updated memory config: {memory_config.strategy.value}")
     
     @classmethod
-    def get_from_pool(cls):
+    def get_from_pool(cls, llm_manager: LLMManager):
         """
         Get a chatbot instance from the agent pool.
         
@@ -727,12 +740,22 @@ class ChatbotAgent(ABC):
         The chatbot type is cached per class to avoid creating temporary instances
         on every call, which would trigger unnecessary initialization.
         
+        Args:
+            llm_manager: LLM manager instance (REQUIRED - from dependency injection)
+        
         Returns:
             ChatbotAgent instance from agent pool
             
         Raises:
             RuntimeError: If chatbot initialization fails
+            ValueError: If llm_manager is not provided
         """
+        if llm_manager is None:
+            raise ValueError(
+                "llm_manager is required. "
+                "Get it from dependency injection: Depends(get_llm_manager)"
+            )
+        
         try:
             # Get chatbot type from cache or by using class method or creating a temporary instance
             class_key = cls.__name__
@@ -741,8 +764,12 @@ class ChatbotAgent(ABC):
                 chatbot_type = cls._get_chatbot_type_class()
                 if chatbot_type is None:
                     # Fall back to creating a temporary instance (only once per class)
-                    temp_instance = cls._get_default_instance()
-                    chatbot_type = temp_instance._get_chatbot_type()
+                    # Note: This will fail if llm_manager is required, so we need a workaround
+                    # For now, we'll require _get_chatbot_type_class to be implemented
+                    raise ValueError(
+                        f"{cls.__name__} must implement _get_chatbot_type_class() "
+                        "to avoid requiring llm_manager for type detection"
+                    )
                 _chatbot_type_cache[class_key] = chatbot_type
             chatbot_type = _chatbot_type_cache[class_key]
             
@@ -757,11 +784,16 @@ class ChatbotAgent(ABC):
                     # If config loading fails, use default
                     pass
             
+            # Create agent factory that passes llm_manager to _get_default_instance
+            def agent_factory():
+                instance = cls._get_default_instance(llm_manager=llm_manager)
+                return instance
+            
             # Get agent pool for this chatbot type
             # The pool will create instances using the factory if needed
             agent_pool = get_agent_pool(
                 chatbot_type=chatbot_type,
-                agent_factory=cls._get_default_instance,
+                agent_factory=agent_factory,
                 pool_size=pool_size
             )
             

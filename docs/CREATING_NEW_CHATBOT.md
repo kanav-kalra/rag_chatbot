@@ -106,7 +106,7 @@ agent_instructions: |
 
 ## Step 3: Create Chatbot Class
 
-Create a new file `src/domain/chatbot/support_chatbot.py`:
+Create a new class `SupportChatbot`:
 
 ```python
 """
@@ -234,7 +234,7 @@ python scripts/ingestion/create_vectorstore.py \
 
 ## Step 5: Create API Route (Optional)
 
-If you want a dedicated API endpoint, add a route in `src/api/v1/routes/chat.py`:
+If you want a dedicated API endpoint, add a route to your API router:
 
 ```python
 from src.domain.chatbot.support_chatbot import get_support_chatbot
@@ -302,7 +302,7 @@ curl -X POST "http://localhost:8000/api/v1/chat/support" \
 
 ### Test in Streamlit
 
-Add a page in `src/ui/pages/support_chatbot.py` (similar to `chatbot.py`).
+Add a Streamlit page component (similar to the existing chatbot page).
 
 ## Complete Example: Customer Service Chatbot
 
@@ -358,7 +358,7 @@ agent_instructions: |
   3. Escalate complex issues when needed
 ```
 
-### 3. Class: `src/domain/chatbot/customer_service_chatbot.py`
+### 3. Class: `CustomerServiceChatbot`
 
 ```python
 from src.domain.chatbot.core.chatbot_agent import ChatbotAgent
@@ -413,8 +413,8 @@ python scripts/ingestion/create_vectorstore.py \
 
 ### Import Errors
 
-- Ensure chatbot class is in `src/domain/chatbot/`
-- Check `__init__.py` exports the class
+- Ensure chatbot class is properly defined in the domain layer
+- Check that the class is exported from the module
 - Verify Python path includes project root
 
 ### Agent Not Working
