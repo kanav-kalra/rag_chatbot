@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Optional, Dict, Any
 from contextlib import contextmanager
+from threading import Lock
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent.parent.parent.parent
@@ -22,17 +23,23 @@ class CheckpointerManager:
     """
     Manages Redis checkpointer for LangChain agents.
     Provides singleton access to checkpointer instance.
+    Thread-safe singleton pattern.
     """
     
     _instance: Optional['CheckpointerManager'] = None
+    _instance_lock = Lock()
     _checkpointer: Optional[Any] = None
     _checkpointer_context: Optional[Any] = None
+    _checkpointer_init_lock = Lock()
     _use_redis: bool = True
     
     def __new__(cls):
-        """Singleton pattern"""
+        """Thread-safe singleton pattern with double-checked locking"""
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
+            with cls._instance_lock:
+                # Double-check after acquiring lock
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
         return cls._instance
     
     def __init__(self):
@@ -42,21 +49,27 @@ class CheckpointerManager:
     
     def _initialize_checkpointer(self) -> None:
         """Initialize Redis checkpointer. Raises exception if Redis is unavailable."""
-        # Try to use Redis if available
-        redis_url = getattr(settings, 'REDIS_URL', 'redis://localhost:6379')
-        logger.info(f"Initializing Redis checkpointer with URL: {redis_url}")
-        
-        # RedisSaver.from_conn_string() returns a context manager
-        # We need to enter it to get the actual checkpointer instance
-        self._checkpointer_context = RedisSaver.from_conn_string(redis_url)
-        self._checkpointer = self._checkpointer_context.__enter__()
-        self._checkpointer.setup()
-        self._use_redis = True
-        logger.info("Redis checkpointer initialized successfully")
+        # Thread-safe initialization
+        with self._checkpointer_init_lock:
+            # Double-check after acquiring lock
+            if self._checkpointer is not None:
+                return
+            
+            # Try to use Redis if available
+            redis_url = getattr(settings, 'REDIS_URL', 'redis://localhost:6379')
+            logger.info(f"Initializing Redis checkpointer with URL: {redis_url}")
+            
+            # RedisSaver.from_conn_string() returns a context manager
+            # We need to enter it to get the actual checkpointer instance
+            self._checkpointer_context = RedisSaver.from_conn_string(redis_url)
+            self._checkpointer = self._checkpointer_context.__enter__()
+            self._checkpointer.setup()
+            self._use_redis = True
+            logger.info("Redis checkpointer initialized successfully")
     
     @property
     def checkpointer(self):
-        """Get the checkpointer instance"""
+        """Get the checkpointer instance (thread-safe)"""
         if self._checkpointer is None:
             self._initialize_checkpointer()
         return self._checkpointer
@@ -111,18 +124,23 @@ class CheckpointerManager:
 
 # Global singleton instance
 _checkpointer_manager: Optional[CheckpointerManager] = None
+_checkpointer_lock = Lock()
 
 
 def get_checkpointer_manager() -> CheckpointerManager:
     """
     Get the global checkpointer manager instance (singleton).
+    Thread-safe double-checked locking pattern.
     
     Returns:
         CheckpointerManager instance
     """
     global _checkpointer_manager
     if _checkpointer_manager is None:
-        _checkpointer_manager = CheckpointerManager()
+        with _checkpointer_lock:
+            # Double-check after acquiring lock
+            if _checkpointer_manager is None:
+                _checkpointer_manager = CheckpointerManager()
     return _checkpointer_manager
 
 
