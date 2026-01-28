@@ -409,27 +409,82 @@ This structured approach transforms the chatbot from a "Search Engine" into a "P
 
 ### The Developer's Guide 👩‍💻
 
-**Goal**: Build your own production-ready RAG chatbot using our modular architecture. This guide walks you through the implementation with real code snippets from our codebase.
+**Goal**: Build a new production-ready RAG chatbot (like the HR bot) by composing the same reusable building blocks: **config → prompts → ingestion → retrieval → LLM → memory/sessions → API/UI → evaluation**.
+
+This section is intentionally **step-by-step**. You can follow it to create *any* new bot (Legal, IT Support, Finance) without rewriting the platform.
 
 ---
 
-### Architecture Overview
+### Step-by-Step: Build Your Own Chatbot
 
-The system has 5 major components:
+#### Step 0 — Pick a “chatbot type” (your bot’s ID)
 
-1. **Document Ingestion & Vector Store Creation** - Load PDFs, split into chunks, generate embeddings, store in ChromaDB
-2. **Agent Pool Management** - Reuse chatbot instances across requests to reduce memory overhead
-3. **Retrieval-Augmented Generation** - Query vector store, retrieve context, generate responses
-4. **Session & Memory Management** - Maintain conversation history using Redis checkpointer
-5. **API & UI Layer** - FastAPI endpoints and Streamlit interface for user interaction
+Every bot in this repo is identified by a `chatbot_type` string (examples: `hr`, `legal`). This ID is used to:
+- load YAML config under `config/chatbot/`
+- load prompts under `config/chatbot/prompts/`
+- select a vector store directory + collection naming
+- create a dedicated agent pool per bot type
 
 ---
 
-### Component Breakdown with Code Snippets
+#### Step 1 — Create your config (LLM, vector store, tools, memory, pool)
 
-#### 1. Create Vector Database from Documents
+Create `config/chatbot/<your_bot>_chatbot_config.yaml`.
 
-The first step is ingesting your documents into a vector store. Our ingestion pipeline loads PDFs, splits them into chunks with overlap, generates embeddings, and stores them in ChromaDB.
+What this config controls:
+- **LLM**: model name, temperature, max tokens
+- **Vector store**: where embeddings live, which embedding provider/model to use
+- **Tools**: whether retrieval is enabled (and any extra tools later)
+- **Memory**: how history is trimmed/summarized before each model call
+- **Agent pool**: how many warm agents to keep alive
+
+Start by copying the HR config (`config/chatbot/hr_chatbot_config.yaml`) and tweak:
+- `vector_store.type` (your chatbot type)
+- `vector_store.persist_dir` and `collection_name`
+- `system_prompt.prompts_file`
+- `memory.strategy` and thresholds
+- `agent_pool.size`
+
+---
+
+#### Step 2 — Write prompts (personality + answer rules)
+
+Create `config/chatbot/prompts/<your_bot>_prompts.yaml`.
+
+Why prompts are a “component”:
+- The prompt is your **policy layer**: formatting, refusal rules, citation rules, dedup rules, and “don’t guess” logic live here.
+- In production, you iterate on prompts far more often than code.
+
+Minimum structure:
+- `system_prompt`: who the bot is and what constraints it must follow
+- `agent_instructions`: response format rules, citations/sources format, stop logic
+
+---
+
+#### Step 3 — Add a minimal chatbot class (the only “new code” you usually need)
+
+Create `src/domain/chatbot/<your_bot>_chatbot.py`.
+
+This class is intentionally tiny: it just declares the type + config filename so the shared `ChatbotAgent` base can do the heavy lifting (tools, prompts, memory, pooling).
+
+---
+
+#### Step 4 — Ingest documents into a vector store (Ingestion + Embeddings + ChromaDB)
+
+**Ingestion is how your PDFs become searchable context.**
+
+What happens in ingestion:
+- **Load** documents (PDF → `Document` objects)
+- **Chunk** documents (split into overlapping text windows)
+- **Embed** chunks (text → vectors via embedding model)
+- **Persist** into ChromaDB (vectors + metadata saved to disk)
+
+Where to look in the repo:
+- loaders/chunking: `src/application/ingestion/`
+- ingestion scripts: `scripts/ingestion/`
+- vector store plumbing: `src/infrastructure/vectorstore/`
+
+Here’s what the ingestion pipeline looks like in code:
 
 ```python
 from src.application.ingestion.loader import load_pdf_documents
@@ -462,7 +517,8 @@ vector_store = Chroma.from_documents(
 )
 ```
 
-**CLI Usage:**
+**CLI usage (recommended):**
+
 ```bash
 # Incremental indexing (default) - only indexes new/changed files
 python scripts/ingestion/create_vectorstore.py \
@@ -485,9 +541,17 @@ python scripts/ingestion/create_vectorstore.py \
 
 ---
 
-#### 2. Reduce Per-Request Overhead with Agent Pools
+#### Step 5 — Enable agent pooling (performance + stability under load)
 
 Instead of creating a new chatbot instance for every request (which can consume a lot of memory), we use an **Agent Pool** that reuses pre-initialized agents.
+
+Why it matters:
+- **Lower latency**: avoids re-initializing models/tools/config on every request
+- **Lower memory churn**: controlled number of long-lived agents
+- **Safer concurrency**: agents are leased and returned in a thread-safe way
+
+Where it lives:
+- `src/application/chatbot/agent_pool.py`
 
 ```python
 from src.application.chatbot.agent_pool import AgentPool, get_agent_pool
@@ -519,9 +583,32 @@ response = chatbot.chat(
 
 ---
 
-#### 3. Retrieval-Augmented Generation Pipeline
+#### Step 6 — Wire up retrieval (your “R” in RAG)
 
 The core RAG flow: retrieve relevant documents, inject context into prompt, generate response.
+
+What retrieval does (in this repo):
+- exposes a **retrieval tool** the agent can call
+- queries the configured vector store for similar chunks
+- returns text + metadata (so the model can cite sources)
+
+Where it lives:
+- retrieval service: `src/domain/retrieval/service.py`
+- vector store manager: `src/infrastructure/vectorstore/manager.py`
+
+---
+
+#### Step 6.5 — Configure the LLM layer (provider portability)
+
+**The LLM layer is intentionally abstracted** so your domain logic doesn’t care whether you’re using OpenAI, Google Gemini, Anthropic, or a local model.
+
+What it does:
+- centralizes model/provider configuration (name, temperature, max tokens, base URL)
+- returns a consistent “chat model” interface to the agent
+- makes switching models a config change instead of a refactor
+
+Where it lives:
+- `src/infrastructure/llm/manager.py`
 
 ```python
 from src.domain.retrieval.service import RetrievalService
@@ -564,7 +651,7 @@ response = agent.invoke({
 
 ---
 
-#### 4. Never Lose a Conversation: Redis Checkpoints & Smart Memory Management
+#### Step 7 — Add sessions + memory (persistence + context-window safety)
 
 We use **LangGraph's Redis checkpointer** to persist conversation state. This means the bot remembers context across server restarts. But persistence alone isn't enough - we also need intelligent memory management to handle long conversations without hitting token limits or losing context.
 
@@ -786,9 +873,14 @@ This means:
 
 ---
 
-#### 5. FastAPI Endpoints with Dependency Injection
+#### Step 8 — Expose your bot via FastAPI (production entrypoint)
 
 Our API uses FastAPI's dependency injection for clean, testable code. Session management is handled automatically via headers.
+
+Where to look:
+- v1 routing: `src/api/v1/router.py`
+- routes: `src/api/v1/routes/`
+- session dependency: `src/shared/dependencies/session.py`
 
 ```python
 from fastapi import APIRouter, Depends
@@ -830,9 +922,13 @@ async def chat_with_hr_chatbot(
 
 ---
 
-#### 6. Streamlit UI for Interactive Testing
+#### Step 9 — Add a Streamlit UI (fast iteration + demos)
 
 Our Streamlit interface provides a chat UI for testing and demos.
+
+Where it lives:
+- Streamlit app: `src/ui/app.py`
+- pages: `src/ui/pages/`
 
 ```python
 import streamlit as st
@@ -867,6 +963,16 @@ if prompt := st.chat_input("Ask about HR policies..."):
     # Add assistant response
     st.session_state.messages.append({"role": "assistant", "content": response})
 ```
+
+---
+
+#### Step 10 — Evaluate before you ship (quality control)
+
+RAG systems regress easily when you change prompts/models/retrieval settings. This repo includes an evaluation pipeline so you can measure quality objectively before deploying.
+
+Where it lives:
+- evaluation core: `evaluations/core/`
+- HR bot evaluation: `evaluations/hr_chatbot/`
 
 ---
 
