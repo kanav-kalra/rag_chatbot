@@ -15,12 +15,12 @@ This guide breaks down how to build a production-ready RAG (Retrieval-Augmented 
 ### What You'll Learn
 
 By the end of this guide, you'll know how to:
-- ✅ Build a production-ready RAG system (not just a prototype)
-- ✅ Implement agent pools to reuse initialized chatbot instances across requests
-- ✅ Set up Redis checkpoints for persistent conversations
-- ✅ Create evaluation pipelines to measure chatbot quality
-- ✅ Build new chatbots without touching core code
-- ✅ Deploy with Docker for easy scaling
+- Build a production-ready RAG system (not just a prototype)
+- Implement agent pools to reuse initialized chatbot instances across requests
+- Set up Redis checkpoints for persistent conversations
+- Create evaluation pipelines to measure chatbot quality
+- Build new chatbots without touching core code
+- Deploy with Docker for easy scaling
 
 **Prerequisites**: Basic Python knowledge, familiarity with APIs  
 **Time to Build**: Varies based on your data, infrastructure, and customization
