@@ -170,7 +170,7 @@ This is where the business logic lives, independent of the database or UI.
 The following diagram illustrates the sequential flow of a user query through our RAG system:
 
 ```mermaid
-flowchart TD
+flowchart LR
     Start([👤 User Query]) --> Step1[1️⃣ Session Lookup<br/>SessionManager retrieves<br/>conversation history from Redis]
     Step1 --> Step2[2️⃣ Agent Allocation<br/>AgentPool provides<br/>warm ChatbotAgent]
     Step2 --> Step3[3️⃣ Retrieval<br/>RetrievalService → VectorStoreManager<br/>→ ChromaDB returns relevant chunks]
