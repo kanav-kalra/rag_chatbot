@@ -40,15 +40,13 @@ We needed a production system, not a prototype. So we rebuilt it from scratch wi
 
 ---
 
-We've split this guide into four parts:
-1.  **The Strategic Advantage**: Why this tech stack wins in the enterprise.
-2.  **The RAG Architecture**: A technical deep dive into the retrieval pipeline.
-3.  **Engineering the HR Chatbot**: The "Secret Sauce" of prompt engineering.
-4.  **The Developer's Guide**: How to build and deploy your own bot.
+We've split this guide into two pages:
+1.  **Page 1 — Strategy + Architecture**: Why this approach works in production, and how the RAG pipeline is designed end-to-end.
+2.  **Page 2 — HR Bot + Build Guide**: Prompt engineering techniques, plus a practical developer guide with real code snippets.
 
 ---
 
-## Part 1: The Strategic Advantage 🚀
+## Page 1: Strategy + Architecture 🚀🏗️
 
 ### "Why isn't a simple script enough?"
 
@@ -103,7 +101,7 @@ Exact numbers depend on your data, deployment, and model/provider choices. In pr
 
 ---
 
-## Part 2: The Architecture (Deep Dive) 🏗️
+### The Architecture (Deep Dive) 🏗️
 
 ### The core of our system is a sophisticated Retrieval-Augmented Generation pipeline.
 
@@ -205,7 +203,178 @@ flowchart TD
 
 ---
 
-## Part 3: Engineering the HR Chatbot 🤖
+### ⚡ Quick Start with Docker
+
+The easiest way to stand up the entire stack (App + Redis) is Docker.
+
+```bash
+# 1. Clone & Configure
+git clone https://github.com/your-username/rag_chatbot.git
+cd rag_chatbot
+cp .env-sample .env  # Add your OPENAI_API_KEY or GEMINI_API_KEY
+
+# 2. Launch Services
+docker-compose up --build
+```
+
+**Access Points:**
+- **FastAPI**: `http://localhost:8000/docs`
+- **Streamlit UI**: `http://localhost:8501`
+- **Redis**: `localhost:6379` (for checkpointer)
+
+---
+
+### 🛠️ Creating Your Own Chatbot (The 4-Step Recipe)
+
+Want to build a specialized "Legal Bot" or "Sales Assistant"? You don't need to touch the core engine. Just follow this recipe:
+
+#### Step 1: The Config (`config/chatbot/legal_chatbot_config.yaml`)
+
+Define the personality, model, and resources. Here's a complete example based on the HR chatbot configuration:
+
+```yaml
+# Model Configuration
+model:
+  name: "gpt-4"  # LLM model name (OpenAI, Anthropic, Google, or Ollama)
+  temperature: 0.7  # Temperature (0.0-2.0), controls randomness
+  max_tokens: 2000  # Maximum tokens in response
+  base_url: null  # Optional, for Ollama or custom endpoints
+
+# Vector Store Configuration
+vector_store:
+  type: "legal"  # Unique identifier (must match chatbot type)
+  persist_dir: "./data/vectorstores/chroma_db/legal_chatbot"  # ChromaDB persistence directory
+  collection_name: "legal_docs"  # Base collection name (auto-suffixed with provider/model)
+  embedding_provider: "openai"  # "auto", "openai", or "google"
+  embedding_model: "text-embedding-3-small"  # Empty = use provider default
+  # Note: Collection names are automatically suffixed with embedding provider and model.
+  # This allows multiple embedding providers to coexist.
+  
+  # Ingestion Configuration (for create_vectorstore.py script)
+  ingestion:
+    folder_path: "/path/to/legal_documents"  # Default folder path containing PDF files
+    chunk_size: 1000  # Maximum size of chunks to return (in characters)
+    chunk_overlap: 200  # Overlap in characters between chunks
+    recursive: true  # If true, search for PDFs recursively in subdirectories
+    indexing_mode: "incremental"  # "incremental" (default) or "full"
+    # - incremental: Only indexes new or changed files (default, recommended)
+    # - full: Always re-indexes everything (clears existing collection)
+
+# System Prompt Configuration
+# If template/agent_instructions_template are null, automatically loads from prompts_file
+system_prompt:
+  prompts_file: "legal_chatbot_prompts.yaml"  # Prompts file (relative to config/chatbot/prompts/)
+  template: null  # If null, uses system_prompt from prompts_file
+  agent_instructions_template: null  # If null, uses agent_instructions from prompts_file
+
+# Tools Configuration
+tools:
+  enable_retrieval: true  # Enable document retrieval tool
+  additional: []  # Additional tools beyond retrieval (list of tool names/classes)
+
+# Memory Configuration
+memory:
+  strategy: "trim_and_summarize"  # Options: "none", "trim", "summarize", "trim_and_summarize"
+  trim_keep_messages: 5  # Keep last N messages when trimming (recommended: 5)
+  summarize_threshold: 10  # Summarize when messages exceed this count (recommended: 10)
+  summarize_model: "gpt-3.5-turbo-16k"  # Model for summarization (should have high context window)
+
+# Agent Pool Configuration
+agent_pool:
+  size: 2  # Number of shared agents (default: 1)
+
+# Verbose Logging
+verbose: false  # Enable verbose logging for debugging
+```
+
+#### Step 2: The Prompts (`config/chatbot/prompts/legal_prompts.yaml`)
+
+Tell it who it is and how to behave.
+
+```yaml
+system_prompt: |
+  You are a Legal Assistant specializing in contract analysis.
+  Only answer based on the retrieved legal documents.
+  If the information is not in the provided context, state:
+  "The provided documents do not contain information regarding [topic]."
+  Do NOT guess or use outside knowledge.
+
+agent_instructions: |
+  - Provide specific clause numbers and page references
+  - Quote exact text from documents when possible
+  - If unsure, recommend consulting a human lawyer
+```
+
+#### Step 3: The Class (`LegalChatbot`)
+
+Minimal boilerplate - just define the type and config filename.
+
+```python
+from src.domain.chatbot.core.chatbot_agent import ChatbotAgent
+
+class LegalChatbot(ChatbotAgent):
+    """Legal chatbot implementation."""
+    
+    def _get_chatbot_type(self) -> str:
+        return "legal"
+    
+    @classmethod
+    def _get_config_filename(cls) -> str:
+        return "legal_chatbot_config.yaml"
+    
+    @classmethod
+    def _get_default_instance(cls) -> "LegalChatbot":
+        return LegalChatbot()
+
+# Convenience function
+def get_legal_chatbot() -> LegalChatbot:
+    return LegalChatbot.get_from_pool()
+```
+
+**That's it!** The base `ChatbotAgent` class automatically:
+- Loads YAML configuration
+- Creates retrieval tools
+- Builds system prompts
+- Manages memory
+- Handles agent pool
+
+#### Step 4: Ingest Your Data
+
+Load your PDFs/Documents into the vector store. The script uses incremental indexing by default, which only processes new or changed files on subsequent runs.
+
+```bash
+# First time - creates the vector store
+python scripts/ingestion/create_vectorstore.py \
+  --chatbot-type legal \
+  --folder ./legal_documents \
+  --chunk-size 1000 \
+  --chunk-overlap 200
+
+# Later updates - automatically detects and indexes only changed files
+python scripts/ingestion/create_vectorstore.py \
+  --chatbot-type legal \
+  --folder ./legal_documents
+
+# Force full re-index (clears existing)
+python scripts/ingestion/create_vectorstore.py \
+  --chatbot-type legal \
+  --folder ./legal_documents \
+  --indexing-mode full
+```
+
+**Verify the vector store:**
+
+```python
+from src.infrastructure.vectorstore.manager import get_vector_store
+
+vector_store = get_vector_store("legal")
+count = vector_store._collection.count()
+print(f"Vector store contains {count} document chunks")
+```
+
+---
+
+## Page 2: HR Chatbot + Developer Guide 🤖👩‍💻
 
 ### The "Secret Sauce" is in the Prompt
 
@@ -238,7 +407,7 @@ This structured approach transforms the chatbot from a "Search Engine" into a "P
 
 ---
 
-## Part 4: The Developer's Guide 👩‍💻
+### The Developer's Guide 👩‍💻
 
 **Goal**: Build your own production-ready RAG chatbot using our modular architecture. This guide walks you through the implementation with real code snippets from our codebase.
 
@@ -701,176 +870,6 @@ if prompt := st.chat_input("Ask about HR policies..."):
 
 ---
 
-### ⚡ Quick Start with Docker
-
-The easiest way to stand up the entire stack (App + Redis) is Docker.
-
-```bash
-# 1. Clone & Configure
-git clone https://github.com/your-username/rag_chatbot.git
-cd rag_chatbot
-cp .env-sample .env  # Add your OPENAI_API_KEY or GEMINI_API_KEY
-
-# 2. Launch Services
-docker-compose up --build
-```
-
-**Access Points:**
-- **FastAPI**: `http://localhost:8000/docs`
-- **Streamlit UI**: `http://localhost:8501`
-- **Redis**: `localhost:6379` (for checkpointer)
-
----
-
-### 🛠️ Creating Your Own Chatbot (The 4-Step Recipe)
-
-Want to build a specialized "Legal Bot" or "Sales Assistant"? You don't need to touch the core engine. Just follow this recipe:
-
-#### Step 1: The Config (`config/chatbot/legal_chatbot_config.yaml`)
-
-Define the personality, model, and resources. Here's a complete example based on the HR chatbot configuration:
-
-```yaml
-# Model Configuration
-model:
-  name: "gpt-4"  # LLM model name (OpenAI, Anthropic, Google, or Ollama)
-  temperature: 0.7  # Temperature (0.0-2.0), controls randomness
-  max_tokens: 2000  # Maximum tokens in response
-  base_url: null  # Optional, for Ollama or custom endpoints
-
-# Vector Store Configuration
-vector_store:
-  type: "legal"  # Unique identifier (must match chatbot type)
-  persist_dir: "./data/vectorstores/chroma_db/legal_chatbot"  # ChromaDB persistence directory
-  collection_name: "legal_docs"  # Base collection name (auto-suffixed with provider/model)
-  embedding_provider: "openai"  # "auto", "openai", or "google"
-  embedding_model: "text-embedding-3-small"  # Empty = use provider default
-  # Note: Collection names are automatically suffixed with embedding provider and model.
-  # This allows multiple embedding providers to coexist.
-  
-  # Ingestion Configuration (for create_vectorstore.py script)
-  ingestion:
-    folder_path: "/path/to/legal_documents"  # Default folder path containing PDF files
-    chunk_size: 1000  # Maximum size of chunks to return (in characters)
-    chunk_overlap: 200  # Overlap in characters between chunks
-    recursive: true  # If true, search for PDFs recursively in subdirectories
-    indexing_mode: "incremental"  # "incremental" (default) or "full"
-    # - incremental: Only indexes new or changed files (default, recommended)
-    # - full: Always re-indexes everything (clears existing collection)
-
-# System Prompt Configuration
-# If template/agent_instructions_template are null, automatically loads from prompts_file
-system_prompt:
-  prompts_file: "legal_chatbot_prompts.yaml"  # Prompts file (relative to config/chatbot/prompts/)
-  template: null  # If null, uses system_prompt from prompts_file
-  agent_instructions_template: null  # If null, uses agent_instructions from prompts_file
-
-# Tools Configuration
-tools:
-  enable_retrieval: true  # Enable document retrieval tool
-  additional: []  # Additional tools beyond retrieval (list of tool names/classes)
-
-# Memory Configuration
-memory:
-  strategy: "trim_and_summarize"  # Options: "none", "trim", "summarize", "trim_and_summarize"
-  trim_keep_messages: 5  # Keep last N messages when trimming (recommended: 5)
-  summarize_threshold: 10  # Summarize when messages exceed this count (recommended: 10)
-  summarize_model: "gpt-3.5-turbo-16k"  # Model for summarization (should have high context window)
-
-# Agent Pool Configuration
-agent_pool:
-  size: 2  # Number of shared agents (default: 1)
-
-# Verbose Logging
-verbose: false  # Enable verbose logging for debugging
-```
-
-#### Step 2: The Prompts (`config/chatbot/prompts/legal_prompts.yaml`)
-
-Tell it who it is and how to behave.
-
-```yaml
-system_prompt: |
-  You are a Legal Assistant specializing in contract analysis.
-  Only answer based on the retrieved legal documents.
-  If the information is not in the provided context, state:
-  "The provided documents do not contain information regarding [topic]."
-  Do NOT guess or use outside knowledge.
-
-agent_instructions: |
-  - Provide specific clause numbers and page references
-  - Quote exact text from documents when possible
-  - If unsure, recommend consulting a human lawyer
-```
-
-#### Step 3: The Class (`LegalChatbot`)
-
-Minimal boilerplate - just define the type and config filename.
-
-```python
-from src.domain.chatbot.core.chatbot_agent import ChatbotAgent
-
-class LegalChatbot(ChatbotAgent):
-    """Legal chatbot implementation."""
-    
-    def _get_chatbot_type(self) -> str:
-        return "legal"
-    
-    @classmethod
-    def _get_config_filename(cls) -> str:
-        return "legal_chatbot_config.yaml"
-    
-    @classmethod
-    def _get_default_instance(cls) -> "LegalChatbot":
-        return LegalChatbot()
-
-# Convenience function
-def get_legal_chatbot() -> LegalChatbot:
-    return LegalChatbot.get_from_pool()
-```
-
-**That's it!** The base `ChatbotAgent` class automatically:
-- Loads YAML configuration
-- Creates retrieval tools
-- Builds system prompts
-- Manages memory
-- Handles agent pool
-
-#### Step 4: Ingest Your Data
-
-Load your PDFs/Documents into the vector store. The script uses incremental indexing by default, which only processes new or changed files on subsequent runs.
-
-```bash
-# First time - creates the vector store
-python scripts/ingestion/create_vectorstore.py \
-  --chatbot-type legal \
-  --folder ./legal_documents \
-  --chunk-size 1000 \
-  --chunk-overlap 200
-
-# Later updates - automatically detects and indexes only changed files
-python scripts/ingestion/create_vectorstore.py \
-  --chatbot-type legal \
-  --folder ./legal_documents
-
-# Force full re-index (clears existing)
-python scripts/ingestion/create_vectorstore.py \
-  --chatbot-type legal \
-  --folder ./legal_documents \
-  --indexing-mode full
-```
-
-**Verify the vector store:**
-```python
-from src.infrastructure.vectorstore.manager import get_vector_store
-
-vector_store = get_vector_store("legal")
-count = vector_store._collection.count()
-print(f"Vector store contains {count} document chunks")
-```
-
----
-
 ### Best Practices & Production Considerations
 
 1. **Embedding Provider Selection**
@@ -909,43 +908,6 @@ print(f"Vector store contains {count} document chunks")
    - **Relevance** (97%): Answer addresses the user's question
    - **Retrieval Relevance** (95%): Retrieved documents are relevant to the query
    - **Scannability** (78%): Structured format with headers and bullet points
-
----
-
-### Real-World Example: HR Policy Query
-
-Here's a complete example showing how the system handles a real user query:
-
-![HR Chatbot UI](images/hr_chatbot_ui.png)
-
-**Conversation Flow**:
-
-1. **User Introduction**: "Hi I am Kanav"
-   - **Chatbot Response**: "Hello Kanav! How can I assist you today?"
-
-2. **Policy Query**: "What is the notice period at grade 4?"
-   - **System Flow**:
-     - Retrieves relevant chunks from policy documents (using similarity search)
-     - Combines with conversation history (user's name: Kanav)
-     - Generates structured response using system prompt + retrieved context
-
-3. **Chatbot Response**:
-   > The notice period for Grade 4 is two months [1, 2].
-   >
-   > **Eligibility/Policy**: Employees in grades 4 to 7 have a notice period of two months [1, 2].
-   >
-   > **Key Details**:
-   > - The Company reserves the right to make proportionate deductions from the full and final settlement amount for any unserved notice period [1, 4].
-   > - The Company may, at its sole discretion, curtail the required notice period upon resignation [1, 4].
-
-**Evaluation Scores** (from our LLM-as-Judge pipeline):
-- **Correctness**: ✅ 78% (factually accurate with proper citations)
-- **Groundedness**: ✅ 100% (all information from retrieved documents with source citations [1, 2, 4])
-- **Relevance**: ✅ 97% (directly addresses the question about notice period)
-- **Retrieval Relevance**: ✅ 95% (retrieved documents were highly relevant to the query)
-- **Scannability**: ✅ 78% (structured format with clear sections and bullet points)
-
-This structured approach transforms the chatbot from a "Search Engine" into a "Process Consultant" that provides actionable, cited information with proper source references.
 
 ---
 
