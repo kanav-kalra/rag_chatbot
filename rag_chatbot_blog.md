@@ -974,6 +974,34 @@ Where it lives:
 - evaluation core: `evaluations/core/`
 - HR bot evaluation: `evaluations/hr_chatbot/`
 
+How to run it (HR example):
+
+```bash
+# Run the HR evaluation on the sample dataset
+python evaluations/hr_chatbot/evaluate_hr_chatbot.py \
+  --dataset evaluations/hr_chatbot/sample_dataset.json \
+  --output evaluations/hr_chatbot/results.json
+```
+
+What you need before running:
+- **Vector store is built** for the bot you’re evaluating (run the ingestion step first).
+- **Provider credentials are set** (e.g. `OPENAI_API_KEY` / `GEMINI_API_KEY` depending on your config).
+- **Redis is available** if your runtime is configured to use the Redis checkpointer (Docker is the easiest way).
+
+How to interpret results:
+- The script writes a JSON report (per test case + aggregate metrics).
+- The “Judge” scores typically include:
+  - **Correctness**: did the answer match the expected ground truth?
+  - **Groundedness**: is the answer supported by retrieved context (no hallucinations)?
+  - **Relevance**: did it address the question asked?
+  - **Retrieval relevance**: were the retrieved chunks actually relevant?
+  - **Scannability**: is the response well-structured and easy to skim?
+
+How to add your own test cases:
+- Start by copying `evaluations/hr_chatbot/sample_dataset.json` and replacing questions/expected answers with your domain.
+- Keep test cases small and specific (one “fact” or policy per question) so regressions are obvious.
+- If you’re building a new bot, create a sibling folder like `evaluations/<your_bot>/` and mirror the HR layout.
+
 ---
 
 ### Best Practices & Production Considerations
